@@ -1,0 +1,39 @@
+{
+  "name": "mongo-axi",
+  "version": "0.1.0",
+  "description": "Read-only MongoDB CLI for agents - schemas inferred from samples, capped find/aggregate/count/distinct/explain in token-efficient TOON. No JavaScript is evaluated; write stages are refused and every command is checked against a read allowlist before it is sent. Not a role check.",
+  "type": "module",
+  "keywords": [
+    "mongodb",
+    "mongo",
+    "read-only",
+    "cli",
+    "agent",
+    "axi",
+    "toon"
+  ],
+  "bin": {
+    "mongo-axi": "dist/mongo-axi.js"
+  },
+  "files": [
+    "dist",
+    "skills/mongo-axi",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "prepublishOnly": "cd ../.. && pnpm run check"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "axi-sdk-js": "^0.1.13",
+    "mongodb": "~6.16.0",
+    "mongodb-connection-string-url": "^3.0.2",
+    "@napi-rs/keyring": "^2.1.1",
+    "@toon-format/toon": "^4.4.0"
+  },
+  "author": "Cristian Mos"
+}

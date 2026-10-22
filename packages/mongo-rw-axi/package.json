@@ -1,0 +1,38 @@
+{
+  "name": "mongo-rw-axi",
+  "version": "0.1.0",
+  "description": "WRITE ACCESS - loopback hosts only. MongoDB CLI for agents that CAN MODIFY AND DROP DATA on local databases - insert, update, delete, indexes, collections, import, plus every read-only mongo-axi command. Use mongo-axi for anything that is not a local dev database.",
+  "type": "module",
+  "keywords": [
+    "mongodb",
+    "mongo",
+    "cli",
+    "agent",
+    "axi",
+    "toon"
+  ],
+  "bin": {
+    "mongo-rw-axi": "dist/mongo-rw-axi.js"
+  },
+  "files": [
+    "dist",
+    "skills/mongo-rw-axi",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "prepublishOnly": "cd ../.. && pnpm run check"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "axi-sdk-js": "^0.1.13",
+    "mongodb": "~6.16.0",
+    "mongodb-connection-string-url": "^3.0.2",
+    "@napi-rs/keyring": "^2.1.1",
+    "@toon-format/toon": "^4.4.0"
+  },
+  "author": "Cristian Mos"
+}

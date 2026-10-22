@@ -1,0 +1,42 @@
+{
+  "name": "mongo-axi-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Monorepo for mongo-axi (read-only) and mongo-rw-axi (write, loopback only)",
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "build:skill": "tsx scripts/build-skill.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "safety:readme": "tsx scripts/safety-readme.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "check": "pnpm run typecheck && pnpm run test && pnpm run build && pnpm run build:skill -- --check && pnpm run safety:readme -- --check",
+    "version": "tsx scripts/sync-version.ts && git add packages/mongo-axi/package.json packages/mongo-rw-axi/package.json"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@napi-rs/keyring": "^2.1.1",
+    "@toon-format/toon": "^4.4.0",
+    "@types/node": "^26.6.5",
+    "axi-sdk-js": "^0.1.13",
+    "esbuild": "^0.28.2",
+    "mongodb": "~6.16.0",
+    "mongodb-connection-string-url": "^3.0.2",
+    "mongodb-mcp-server": "3.1.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.4"
+  },
+  "author": "Cristian Mos",
+  "packageManager": "pnpm@10.28.2",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

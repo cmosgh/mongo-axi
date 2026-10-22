@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check
+
+  # Starts its own throwaway MongoDB container (Docker is preinstalled on the runner).
+  # mongo:3.7 is the 4.0 development series, the oldest wire version the driver speaks; the safety matrix needs mongosh and skips there.
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["mongo:8.0", "mongo:3.7"]
+    env:
+      MONGO_AXI_IT_IMAGE: ${{ matrix.image }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:integration
+
+  # Dev tooling needs Node 22+, but the published CLIs promise Node 20+.
+  runtime-node20:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 20
+      - name: Run the built CLIs on Node 20
+        run: |
+          for cli in mongo-axi mongo-rw-axi; do
+            node "packages/$cli/dist/$cli.js" --version
+            node "packages/$cli/dist/$cli.js" --help
+          done
+          cd / && MONGO_AXI_NO_KEYCHAIN=1 node "$GITHUB_WORKSPACE/packages/mongo-axi/dist/mongo-axi.js"
