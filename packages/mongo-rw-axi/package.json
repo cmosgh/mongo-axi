@@ -34,5 +34,14 @@
     "@napi-rs/keyring": "^2.1.1",
     "@toon-format/toon": "^4.4.0"
   },
-  "author": "Cristian Mos"
+  "author": "Cristian Mos",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cmosgh/mongo-axi.git",
+    "directory": "packages/mongo-rw-axi"
+  },
+  "homepage": "https://github.com/cmosgh/mongo-axi/tree/main/packages/mongo-rw-axi#readme",
+  "bugs": {
+    "url": "https://github.com/cmosgh/mongo-axi/issues"
+  }
 }
