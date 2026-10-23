@@ -6,6 +6,7 @@ import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { HookSettings } from "axi-sdk-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { hoistLeadingFlags, type Command } from "../packages/core/src/cli.js";
 import { followUp, rerun, rerunHint, setInvocation, shellQuote } from "../packages/core/src/hints.js";
 import { findHooks, installHooks, ourHook, removeHooks } from "../packages/core/src/hooks.js";
 import { findInvocations, lastSession, recordSession, sessionText, shellSegments, summarizeTranscript } from "../packages/core/src/sessionlog.js";
@@ -305,6 +306,26 @@ describe("home", () => {
     expect(exitCode).toBe(2);
     expect(stdout).toContain("no profile 'nope'");
     expect((await ro("--limit", "5")).exitCode).toBe(2);
+  });
+});
+
+describe("leading flags", () => {
+  const command: Command = { run: async () => "", help: () => "" };
+  const commands = { collection: command, find: command, auth: command };
+
+  it("move after the subcommand and its arguments, before a -- terminator", () => {
+    expect(hoistLeadingFlags(["-p", "dev", "collection", "drop", "x"], commands)).toEqual(["collection", "drop", "x", "-p", "dev"]);
+    expect(hoistLeadingFlags(["-d", "shop", "find", "orders", "--", "-x"], commands)).toEqual(["find", "orders", "-d", "shop", "--", "-x"]);
+    expect(hoistLeadingFlags(["-p", "dev", "db.orders.find({})"], commands)).toEqual(["db.orders.find({})", "-p", "dev"]);
+    expect(hoistLeadingFlags(["-p", "dev"], commands)).toEqual(["home", "-p", "dev"]);
+    expect(hoistLeadingFlags(["-p", "dev", "--help"], commands)).toEqual(["-p", "dev", "--help"]);
+  });
+
+  it("reach the subcommand's own parser", async () => {
+    useTestEnv();
+    const { stdout, exitCode } = await rw("-p", "nope", "collection", "drop", "x");
+    expect(exitCode).toBe(2);
+    expect(stdout).toContain("no profile 'nope'");
   });
 });
 

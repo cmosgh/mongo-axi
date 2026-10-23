@@ -81,7 +81,10 @@ export function hoistLeadingFlags(argv: string[], commands: Record<string, Comma
   const at = argv.findIndex((token) => commands[token] !== undefined || isShellForm(token));
   if (argv.slice(0, at === -1 ? argv.length : at).some((token) => FRONT_ONLY.has(token))) return argv;
   if (at === -1) return [HOME, ...argv];
-  return [argv[at]!, ...argv.slice(0, at), ...argv.slice(at + 1)];
+  // After the subcommand and its arguments (`collection drop x -p dev`), but before a `--` terminator.
+  const rest = argv.slice(at + 1);
+  const end = rest.indexOf("--") === -1 ? rest.length : rest.indexOf("--");
+  return [argv[at]!, ...rest.slice(0, end), ...argv.slice(0, at), ...rest.slice(end)];
 }
 
 export interface CliSpec {
