@@ -1,3 +1,4 @@
+import { redactSecrets } from "./secrets.js";
 import { tool } from "./tool.js";
 
 /** The running command's arguments (after flag hoisting), so hints can repeat its connection flags. */
@@ -43,7 +44,7 @@ const MAX_RERUN = 300;
 
 /**
  * The running command again with `set` flags replaced or added (true = boolean flag),
- * or undefined when it is too long to repeat.
+ * or undefined when it is too long to repeat or holds a connection-string password.
  */
 export function rerun(set: Record<string, string | true>, argv: readonly string[] = invocation): string | undefined {
   const kept: string[] = [];
@@ -61,7 +62,7 @@ export function rerun(set: Record<string, string | true>, argv: readonly string[
   const end = kept.indexOf("--");
   kept.splice(end === -1 ? kept.length : end, 0, ...added);
   const text = `${tool().name} ${kept.map(shellQuote).join(" ")}`;
-  return text.length <= MAX_RERUN ? text : undefined;
+  return text.length <= MAX_RERUN && redactSecrets(text) === text ? text : undefined;
 }
 
 /** "Run `<command>`" with the flags set, or a plain instruction when the command is too long to repeat. */

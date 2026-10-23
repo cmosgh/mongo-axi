@@ -43,6 +43,8 @@ describe("hints", () => {
     expect(rerun({ "--limit": "50" })).toBeUndefined();
     expect(rerunHint({ "--limit": "50" }, "to see all")).toBe("Rerun the same command with --limit 50 to see all");
     expect(rerunHint({}, "again")).toBe("Rerun the same command again");
+    setInvocation(["find", "configs", '{uri: "mongodb://app:s3cret@db.example.test/x"}']);
+    expect(rerunHint({ "--limit": "50" }, "to see all")).toBe("Rerun the same command with --limit 50 to see all");
   });
 
   it("keeps the connection flags in follow-ups", () => {
