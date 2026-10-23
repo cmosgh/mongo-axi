@@ -182,8 +182,9 @@ async function authLogout(args: string[]): Promise<string> {
   const config = readConfig();
   const name = flag(parsed, "--profile") ?? config.active;
   const profiles = { ...(config.profiles ?? {}) };
-  if (!name || !profiles[name]) return block({ auth: { status: "no such profile (no-op)" } });
-  const hadPassword = profiles[name]!.password;
+  // A hand-edited null profile still exists and is removed.
+  if (!name || profiles[name] === undefined) return block({ auth: { status: "no such profile (no-op)" } });
+  const hadPassword = Boolean(profiles[name]?.password);
   if (hadPassword) await clearPassword(name);
   delete profiles[name];
   const active = config.active === name ? Object.keys(profiles)[0] : config.active;

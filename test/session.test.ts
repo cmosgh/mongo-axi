@@ -387,6 +387,8 @@ describe("auth status", () => {
     const { stdout, exitCode } = await ro("auth", "status");
     expect(exitCode).toBe(0);
     expect(stdout).toContain('dev,invalid connection string,none,false\n  ok,"agent@127.0.0.1:27017",none,true');
+    expect((await ro("auth", "logout", "--profile", "dev")).stdout).toContain("status: removed");
+    expect((await ro("auth", "status")).stdout).not.toContain("dev,");
   });
 });
 
