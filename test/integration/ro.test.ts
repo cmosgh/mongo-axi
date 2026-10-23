@@ -294,6 +294,15 @@ describe("server facts", () => {
     }
   });
 
+  it("opens at most one monitor and two pooled connections per command", async () => {
+    const admin = await db("admin");
+    const created = async () => Number((await admin.command({ serverStatus: 1 })).connections.totalCreated);
+    const before = await created();
+    // collections fans storage stats out 8 wide: the pool cap must hold anyway.
+    expect((await ro("collections")).exitCode).toBe(0);
+    expect((await created()) - before).toBeLessThanOrEqual(3);
+  });
+
   it("reports a wrong password as AUTH_REQUIRED without echoing it", async () => {
     process.env["MONGO_AXI_URL"] = urlFor("root", "wrong-pw-123", DB);
     try {

@@ -43,7 +43,10 @@ function clientOptions(target: Target, options: SessionOptions): MongoClientOpti
     appName: tool().name,
     serverSelectionTimeoutMS: 10_000,
     connectTimeoutMS: 10_000,
-    maxPoolSize: 4,
+    // Agents run many short processes in parallel: per process, one polling monitor per member
+    // (streaming would add an RTT socket each) plus two pooled connections.
+    maxPoolSize: 2,
+    serverMonitoringMode: "poll",
     // Every command is seen by the wire guard before it is sent.
     monitorCommands: true,
     // Regex values stay as BSONRegExp: PCRE patterns need not compile in JavaScript.
