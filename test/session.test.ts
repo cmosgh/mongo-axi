@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
@@ -108,7 +108,7 @@ describe("session capture", () => {
       recordSession("/work/a", { ended: "2026-10-01", commands: { query: 1 } });
       expect(lastSession("/work/a")).toMatchObject({ commands: { query: 1 } });
     }
-    for (const entry of ["5", '{"commands": null}', '{"ended": "2026-10-01"}', "[]"]) {
+    for (const entry of ["5", '{"commands": null}', '{"ended": "2026-10-01"}', "[]", '{"ended": "2026-10-01", "commands": {"query": "x"}}', '{"ended": "2026-10-01", "commands": {}, "profile": {}}', '{"ended": "2026-10-01", "commands": {}, "database": {}}']) {
       writeFileSync(join(configDir(), "sessions.json"), `{"directories": {"/work/a": ${entry}}}`);
       expect(lastSession("/work/a")).toBeUndefined();
     }
@@ -259,6 +259,16 @@ describe("setup", () => {
     mkdirSync(plugin);
     expect((await ro("setup", "status")).stdout).toMatch(/opencode: "?unreadable - EISDIR/);
     expect((await ro("setup", "uninstall")).stdout).toContain("OpenCode failed - ");
+  });
+
+  it("reports a Codex config it cannot read", async () => {
+    await ro("setup", "hooks");
+    const config = join(home, ".codex", "config.toml");
+    rmSync(config);
+    mkdirSync(config);
+    const { stdout, exitCode } = await ro("setup", "status");
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/codex: "?session start - but ~\/\.codex\/config\.toml is unreadable - EISDIR/);
   });
 
   it("writes project and local scopes under the working directory only", async () => {

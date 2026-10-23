@@ -172,10 +172,24 @@ export function recordSession(directory: string, summary: SessionSummary): void 
   writeFileSync(logPath(), `${JSON.stringify(log, null, 2)}\n`, { mode: 0o600 });
 }
 
+const optionalString = (value: unknown): boolean => value === undefined || typeof value === "string";
+
+/** A summary as `context end` writes it; anything else was edited by hand. */
+function isSummary(value: unknown): value is SessionSummary {
+  return (
+    isRecord(value) &&
+    typeof value["ended"] === "string" &&
+    isRecord(value["commands"]) &&
+    Object.values(value["commands"]).every((n) => typeof n === "number") &&
+    optionalString(value["profile"]) &&
+    optionalString(value["database"])
+  );
+}
+
 export function lastSession(directory: string): SessionSummary | undefined {
   const entry: unknown = existsSync(logPath()) ? readLog().directories[directory] : undefined;
   // A hand-edited entry is skipped; the next `context end` replaces it.
-  return isRecord(entry) && typeof entry["ended"] === "string" && isRecord(entry["commands"]) ? (entry as unknown as SessionSummary) : undefined;
+  return isSummary(entry) ? entry : undefined;
 }
 
 /** `2026-10-23 - find 4; describe 2 - profile dev; database shop` */

@@ -126,6 +126,15 @@ function agentStatus(agent: Agent, files: ReturnType<typeof agentFiles>, name: s
   return describeKinds(kinds);
 }
 
+/** Why Codex would ignore its hooks, if it would. */
+function codexOff(config: string): string | undefined {
+  try {
+    return codexHooksEnabled(config) ? undefined : `[features] hooks is off in ${tilde(config)}; rerun setup hooks`;
+  } catch (error) {
+    return `${tilde(config)} is unreadable - ${messageOf(error)}`;
+  }
+}
+
 function status(scope: Scope, name: string): string {
   const files = agentFiles(name, scope, process.cwd());
   const hooks: Obj = { scope };
@@ -133,9 +142,8 @@ function status(scope: Scope, name: string): string {
     if (agent !== "claude" && scope === "local") continue;
     hooks[agent === "claude" ? "claude_code" : agent] = agentStatus(agent, files, name);
   }
-  if (files.codexConfig && hooks["codex"] !== "not installed" && !codexHooksEnabled(files.codexConfig)) {
-    hooks["codex"] = `${String(hooks["codex"])} - but [features] hooks is off in ${tilde(files.codexConfig)}; rerun setup hooks`;
-  }
+  const off = files.codexConfig && hooks["codex"] !== "not installed" ? codexOff(files.codexConfig) : undefined;
+  if (off) hooks["codex"] = `${String(hooks["codex"])} - but ${off}`;
   return block({ hooks });
 }
 
