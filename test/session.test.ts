@@ -248,6 +248,20 @@ describe("setup", () => {
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });
 
+  it("refuses a pnpm dlx copy behind a symlink", async () => {
+    const binDir = join(home, "dlx-bin");
+    mkdirSync(binDir);
+    symlinkSync(install(join("Library", "Caches", "pnpm", "dlx", "9c1e")), join(binDir, "mongo-axi"));
+    process.argv[1] = join(binDir, "mongo-axi");
+    const project = realpathSync(mkdtempSync(join(tmpdir(), "mongo-axi-project-")));
+    process.chdir(project);
+    const { stdout, exitCode } = await ro("setup", "hooks", "--local");
+    expect(exitCode).toBe(2);
+    expect(stdout).toContain("runs from the pnpm dlx cache");
+    expect(stdout).toContain("then `mongo-axi setup hooks --local`");
+    expect(existsSync(join(project, ".claude"))).toBe(false);
+  });
+
   it("refuses a source checkout", async () => {
     process.argv[1] = join(saved.cwd, "packages", "mongo-axi", "bin", "mongo-axi.ts");
     const { stdout, exitCode } = await ro("setup", "hooks");
