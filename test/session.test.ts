@@ -378,6 +378,18 @@ describe("home", () => {
   });
 });
 
+describe("auth status", () => {
+  it("lists a hand-edited profile as invalid instead of failing", async () => {
+    useTestEnv();
+    setTool(TOOL);
+    mkdirSync(configDir(), { recursive: true });
+    writeFileSync(join(configDir(), "config.json"), JSON.stringify({ active: "ok", profiles: { dev: null, ok: { uri: "mongodb://agent@127.0.0.1:27017/", password: false } } }));
+    const { stdout, exitCode } = await ro("auth", "status");
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('dev,invalid connection string,none,false\n  ok,"agent@127.0.0.1:27017",none,true');
+  });
+});
+
 describe("leading flags", () => {
   const command: Command = { run: async () => "", help: () => "" };
   const commands = { collection: command, find: command, auth: command };

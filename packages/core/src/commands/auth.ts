@@ -59,7 +59,8 @@ async function authStatus(args: string[]): Promise<string> {
   const profiles = Object.entries(config.profiles ?? {}).map(([name, p]) => ({
     name,
     target: describeProfile(name, p),
-    password: p.password ? "OS keychain" : "none",
+    // A hand-edited profile may be null.
+    password: p?.password ? "OS keychain" : "none",
     active: name === active,
   }));
   const url = env("URL");
