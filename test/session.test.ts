@@ -240,9 +240,10 @@ describe("setup", () => {
 
   it("refuses an npx copy, whose cache later sessions do not have on PATH", async () => {
     install(join(".npm", "_npx", "3f2a"));
-    const { stdout, exitCode } = await ro("setup", "hooks");
+    const { stdout, exitCode } = await ro("setup", "hooks", "--project");
     expect(exitCode).toBe(2);
     expect(stdout).toContain("runs from the npx cache");
+    expect(stdout).toContain("then `mongo-axi setup hooks --project`");
     expect(stdout).toContain("npx skills add cmosgh/mongo-axi --skill mongo-axi");
     expect(existsSync(join(home, ".claude"))).toBe(false);
   });

@@ -214,7 +214,7 @@ export async function setupCommand(args: string[]): Promise<string> {
   if (!execPath) throw usageError(`run setup from an installed ${name} (npm install -g ${name}), not from a source checkout`);
   if (TEMPORARY_INSTALL.test(real(execPath) ?? execPath)) {
     throw usageError(`this ${name} runs from the npx cache, which later sessions do not have - a hook would break`, [
-      `Run \`npm install -g ${name}\`, then \`${name} setup hooks\``,
+      `Run \`npm install -g ${name}\`, then \`${command}${scope === "user" ? "" : ` --${scope}`}\``,
       `Or use the skill instead: npx skills add ${SKILL_REPO} --skill ${name}`,
     ]);
   }
