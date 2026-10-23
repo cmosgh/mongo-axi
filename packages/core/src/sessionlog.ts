@@ -150,11 +150,12 @@ export async function summarizeTranscript(path: string, canonical: CommandLookup
 
 const logPath = (): string => join(configDir(), "sessions.json");
 
+const isRecord = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+
 function readLog(): SessionLog {
   try {
     const parsed = JSON.parse(readFileSync(logPath(), "utf-8")) as SessionLog;
-    const directories: unknown = parsed?.directories;
-    return directories !== null && typeof directories === "object" && !Array.isArray(directories) ? parsed : { directories: {} };
+    return isRecord(parsed?.directories) ? parsed : { directories: {} };
   } catch {
     return { directories: {} };
   }
@@ -172,7 +173,9 @@ export function recordSession(directory: string, summary: SessionSummary): void 
 }
 
 export function lastSession(directory: string): SessionSummary | undefined {
-  return existsSync(logPath()) ? readLog().directories[directory] : undefined;
+  const entry: unknown = existsSync(logPath()) ? readLog().directories[directory] : undefined;
+  // A hand-edited entry is skipped; the next `context end` replaces it.
+  return isRecord(entry) && typeof entry["ended"] === "string" && isRecord(entry["commands"]) ? (entry as unknown as SessionSummary) : undefined;
 }
 
 /** `2026-10-23 - find 4; describe 2 - profile dev; database shop` */

@@ -9,7 +9,7 @@ import { connectionStatus, exploreHelp, homeHeader } from "./home.js";
 
 export const contextHelp = (): string => `usage: ${tool().name} context [end]
 What the session-start hook prints: the connection, saved profiles and what the last session in this directory ran. Never connects or reads the keychain; exits 0.
-\`context end\` is the Claude Code session-end hook: it reads the hook payload on stdin and records the ${tool().name} commands the transcript ran (names and counts, never arguments).
+\`context end\` is the Claude Code session-end hook: it reads the hook payload on stdin and records the ${tool().name} commands the transcript ran (names and counts, plus the -p and -d used most; never other arguments).
 examples:
   ${tool().name} context
   ${tool().name} setup hooks
