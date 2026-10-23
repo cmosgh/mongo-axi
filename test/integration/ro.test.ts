@@ -36,19 +36,51 @@ afterAll(async () => {
 });
 
 describe("home", () => {
-  it("never connects and never prints the password", async () => {
-    process.env["MONGO_AXI_URL"] = "mongodb://agent:hunter2@127.0.0.1:1/shop?authSource=admin";
+  it("shows the server and the default database's collections", async () => {
+    const { stdout, exitCode } = await ro();
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/\nmode: READ-ONLY/);
+    expect(stdout).toMatch(/\nserver: MongoDB \d+\.\d+\.\d+ - standalone\n/);
+    expect(stdout).toMatch(new RegExp(`\\ndatabase: ${DB} - 4 collections; 1 views; \\d[\\d.]* [KMG]?B\\n`));
+    expect(stdout).toContain("collections[5]: customers,");
+    expect(stdout).not.toContain(rootPassword());
+  });
+
+  it("lists the largest databases without a default, and takes -d", async () => {
+    process.env["MONGO_AXI_URL"] = urlFor("root", rootPassword());
     try {
-      const started = Date.now();
-      const { stdout, exitCode } = await ro();
-      expect(Date.now() - started).toBeLessThan(1000);
-      expect(exitCode).toBe(0);
-      expect(stdout).toMatch(/\nmode: READ-ONLY/);
-      expect(stdout).toContain('connection: "agent@127.0.0.1:1/shop (MONGO_AXI_URL)"');
-      expect(stdout).not.toContain("hunter2");
+      const top = await ro();
+      expect(top.stdout).toMatch(new RegExp(`\\ndatabases\\[\\d+\\]\\{name,size\\}:\\n(.*\\n)*  ${DB},`));
+      expect(top.stdout).toContain("Run `mongo-axi collections -d <database>`");
+      const one = await ro("-d", DB);
+      expect(one.stdout).toMatch(/^bin: /);
+      expect(one.stdout).toContain(`Run \`mongo-axi collections -d ${DB}\` for counts and sizes`);
     } finally {
       process.env["MONGO_AXI_URL"] = ROOT_URL();
     }
+  });
+
+  it("reports what it cannot see instead of failing", async () => {
+    process.env["MONGO_AXI_URL"] = urlFor(READER, "wrong-pw", DB);
+    try {
+      const { stdout, exitCode } = await ro();
+      expect(exitCode).toBe(0);
+      expect(stdout).toMatch(/live: "?unavailable - authentication failed/);
+      expect(stdout).toContain("Run `mongo-axi doctor` to diagnose");
+    } finally {
+      process.env["MONGO_AXI_URL"] = ROOT_URL();
+    }
+  });
+});
+
+describe("hints", () => {
+  it("keep -d and give the full rerun command", async () => {
+    const cut = await ro("find", "orders", "{}", "--limit", "5", "-d", DB);
+    expect(cut.stdout).toContain(`Run \`mongo-axi find orders '{}' -d ${DB} --limit ${ORDER_COUNT}\` to see all`);
+    const listed = await ro("collections", "-d", DB);
+    expect(listed.stdout).toContain(`Run \`mongo-axi describe <collection> -d ${DB}\``);
+    const typo = await ro("find", "ordrs", "-d", DB);
+    expect(typo.stdout).toContain(`\`mongo-axi collections -d ${DB}\``);
   });
 });
 
@@ -123,7 +155,7 @@ describe("reading documents", () => {
   it("caps results and says how many exist", async () => {
     const { stdout } = await ro("find", "orders", "{}", "--project", "{_id: 1}", "--limit", "2");
     expect(stdout).toMatch(/^docs: 2 of 72 shown\n/);
-    expect(stdout).toContain("Rerun with --limit 72 to see all");
+    expect(stdout).toContain("Run `mongo-axi find orders '{}' --project '{_id: 1}' --limit 72` to see all");
   });
 
   it("redacts secret fields and shortens long strings and arrays", async () => {

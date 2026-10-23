@@ -15,7 +15,7 @@ These are two separate packages, so installing or allowing only `mongo-axi` mean
 - [Safe to auto-approve](packages/mongo-axi#safe-to-auto-approve): what the same agent commands do through `mongosh`, `mongodb-mcp-server --readOnly` and `mongo-axi`, verified in CI
 - [How writes are blocked](packages/mongo-axi#how-writes-are-blocked) and [Limitations](packages/mongo-axi#limitations)
 - [Recipes](packages/mongo-axi#recipes): slow queries, mixed types, orphan references, duplicates before a unique index, unused indexes
-- [Session hook](packages/mongo-axi#session-hook) and [Connections](packages/mongo-axi#connections)
+- [Live overview](packages/mongo-axi#live-overview), [Agent integration](packages/mongo-axi#agent-integration) (session hook or skill) and [Connections](packages/mongo-axi#connections)
 
 **[mongo-rw-axi](packages/mongo-rw-axi)** (writes, loopback only)
 - [What it does](packages/mongo-rw-axi#what-it-does): the write commands and which need `--confirm`

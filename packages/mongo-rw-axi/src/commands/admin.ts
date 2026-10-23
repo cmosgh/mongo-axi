@@ -3,7 +3,8 @@ import { bool, flag, intFlag, parseArgs, type ParsedArgs } from "../../../core/s
 import { indexKeys, indexOptions, storageStats } from "../../../core/src/commands/browse.js";
 import { collectionNames, CONNECTION_FLAGS, CONNECTION_FLAGS_HELP, PROFILE_FLAG, targetFrom } from "../../../core/src/commands/common.js";
 import { readPipeline } from "../../../core/src/commands/query.js";
-import { axiError, usageError } from "../../../core/src/errors.js";
+import { AxiError, axiError, usageError } from "../../../core/src/errors.js";
+import { followUp, shellQuote } from "../../../core/src/hints.js";
 import { isPlainObject, parseDocument } from "../../../core/src/literal.js";
 import { block, helpBlock, humanBytes, out, type Obj } from "../../../core/src/render.js";
 import { keysText, shellText } from "../../../core/src/values.js";
@@ -122,7 +123,7 @@ export async function indexCommand(args: string[]): Promise<string> {
 // --- collection ---
 
 export const COLLECTION_HELP = `usage: mongo-rw-axi collection <create|drop|rename> <name> [args] [flags]
-WRITES. create is idempotent; drop previews until --confirm; rename previews until --confirm when the new name exists (it would be replaced).
+WRITES. create is idempotent; drop previews until --confirm; rename previews until --confirm when the new name exists (it would be replaced), and is a no-op when already done.
 flags{create}:
   --validator <doc>, --capped <bytes>, --max <docs> (with --capped), --view-on <collection> --pipeline <stages>, ${CONNECTION_FLAGS_HELP}
 flags{drop,rename}:
@@ -160,13 +161,25 @@ export async function executeCollectionDrop(parsed: ParsedArgs, raw: string, con
 export async function executeRename(parsed: ParsedArgs, raw: string, to: string, confirm: boolean, usage: string): Promise<string> {
   const target = await targetFrom(parsed);
   const result = await write(target, parsed, async (s) => {
-    const ns = await existingCollection(s, raw, usage);
+    let ns;
+    try {
+      ns = await existingCollection(s, raw, usage);
+    } catch (error) {
+      // A rerun after a successful rename: the source is gone and the new name exists.
+      if (!(error instanceof AxiError && error.code === "NOT_FOUND")) throw error;
+      const database = s.target.database ?? (raw.indexOf(".") > 0 ? raw.slice(0, raw.indexOf(".")) : undefined);
+      if (!database) throw error;
+      const dest = newNamespace({ ...s.target, database }, to, usage);
+      if (!((await collectionNames(s, dest.database)) ?? []).includes(dest.collection)) throw error;
+      return { dest, done: true } as const;
+    }
     const dest = newNamespace({ ...s.target, database: ns.database }, to, usage);
     const taken = ((await collectionNames(s, ns.database)) ?? []).includes(dest.collection);
     if (taken && !confirm) return { ns, dest, gated: true } as const;
     await s.client.db(ns.database).collection(ns.collection).rename(dest.collection, { dropTarget: taken });
     return { ns, dest, replaced: taken } as const;
   });
+  if ("done" in result) return block({ collection: { name: raw, result: `does not exist and ${nsText(result.dest)} does - already renamed (no-op)` } });
   if ("gated" in result) return preview(target, { rename: `${nsText(result.ns)} -> ${nsText(result.dest)}`, risk: `irreversible - ${nsText(result.dest)} exists and is dropped first` });
   return block({ collection: { name: nsText(result.ns), result: `renamed to ${result.dest.collection}${result.replaced ? " (the old one was dropped)" : ""}` } });
 }
@@ -202,7 +215,7 @@ async function collectionCreate(args: string[]): Promise<string> {
   });
   return out(
     block({ collection: { name: nsText(result.ns), kind: viewOn ? "view" : options["capped"] ? "capped" : "collection", result: result.created ? "created" : "already exists (no-op)" } }),
-    helpBlock(result.created ? [] : [`Run \`mongo-rw-axi describe ${raw}\` to see its options`]),
+    helpBlock(result.created ? [] : [`Run \`${followUp(`describe ${shellQuote(raw)}`)}\` to see its options`]),
   );
 }
 

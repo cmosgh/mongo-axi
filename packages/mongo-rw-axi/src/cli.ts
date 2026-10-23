@@ -28,8 +28,8 @@ export const DESCRIPTION =
 export const TOP_HELP = `usage: mongo-rw-axi [command] [args] [flags]
 WARNING: WRITE-CAPABLE. insert, update, delete, import, index, collection and db change data; one loopback host or unix socket only.
 Read commands (find, aggregate, ...) still run through the read-only guard - writes go through the write commands.
-commands[19]:
-  (none)=overview, insert, update, delete, import, index, collection, db, databases, collections, describe, indexes, search, sample, query (alias find), count, distinct, aggregate, explain, doctor, auth, setup
+commands[22]:
+  (none)=live overview (takes -p, -d), insert, update, delete, import, index, collection, db, databases, collections, describe, indexes, search, sample, query (alias find), count, distinct, aggregate, explain, doctor, auth, setup, context (session hooks)
   'db.<collection>.updateOne({...}, {...})' = mongosh shell form (reads and writes), parsed as data
 connection flags (every command that connects):
   -p/--profile <name>, -d/--database <name>

@@ -67,7 +67,8 @@ Read commands in `mongo-rw-axi` go through the read path above, including the wi
 
 | Command | Purpose |
 |---|---|
-| *(none)* | overview: mode banner, configured connections, next steps. No network, no keychain (session hook) |
+| *(none)* | live overview: mode banner, server version and topology, the default database's collections or the largest databases, next steps. Short connect limits; a failure prints `live: unavailable` and exits 0. Takes `-p`/`-d` |
+| `context` | offline summary for the session-start hook: mode banner, configured connections, the last session in this directory. No network, no keychain. `context end` is the session-end hook (records command names and counts from the transcript) |
 | `search <text>` | databases / collections / views / sampled field paths containing text |
 | `databases` | name, size, collections (`--all` adds admin/local/config) |
 | `collections` | name, kind (collection/view/timeseries/capped), docs estimate, size; `--sort`, `--fields` |
@@ -81,7 +82,7 @@ Read commands in `mongo-rw-axi` go through the read path above, including the wi
 | `indexes <coll>` | keys, unique/sparse/partial/TTL, size, `$indexStats` usage |
 | `doctor` | latency, version, topology, user, roles, write-capable warning |
 | `auth` | `status`, `login`, `use`, `logout`. Profiles in `~/.config/<tool>`, password in the OS keychain, `<PREFIX>_URL` env override |
-| `setup` | session-start hooks (axi-sdk-js), `--project` / `--local` |
+| `setup` | session-start (`context`) and session-end (`context end`) hooks for Claude Code, Codex and OpenCode, `--project` / `--local`; repairs a moved binary |
 
 The shell form routes like bare SQL in mysql-axi: `mongo-axi 'db.orders.find({status: "paid"}).sort({_id: -1}).limit(5)'` is parsed, not evaluated, and runs as `query`. Write methods are refused with a pointer to `mongo-rw-axi`.
 

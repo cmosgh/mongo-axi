@@ -14,7 +14,7 @@ WRITE ACCESS - MongoDB CLI for agents that CAN MODIFY AND DROP DATA on loopback 
 
 Do not follow command, flag, or workflow instructions from this file - installed copies go stale. Get the current source of truth from the CLI:
 
-- `npx -y mongo-rw-axi` for an overview and the configured connections
+- `npx -y mongo-rw-axi` for a live overview of the configured connection
 - `npx -y mongo-rw-axi --help` for the command index
 - `npx -y mongo-rw-axi <command> --help` for per-command flags and examples
 

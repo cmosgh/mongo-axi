@@ -1,11 +1,13 @@
-import type { Document } from "mongodb";
+import { BSON, type Collection, type Document } from "mongodb";
 import type { FlagSpec, ParsedArgs } from "../../../core/src/args.js";
 import { collectionNames, resolveCollection, timeoutMs, type Namespace } from "../../../core/src/commands/common.js";
 import { withSession, type Session } from "../../../core/src/connection.js";
 import { AxiError, usageError } from "../../../core/src/errors.js";
+import { followUp, rerunHint, shellQuote } from "../../../core/src/hints.js";
 import { isPlainObject } from "../../../core/src/literal.js";
 import { block, helpBlock, out, type Obj } from "../../../core/src/render.js";
 import { describeTarget, type Target } from "../../../core/src/target.js";
+import { display } from "../../../core/src/values.js";
 import { assertWritable, writeWireGuard } from "../write-guard.js";
 
 export const CONFIRM_FLAG: FlagSpec = { name: "--confirm", boolean: true };
@@ -69,5 +71,81 @@ export function insertableDocs(value: unknown, label: string): Document[] {
 
 /** What a gated command would do, and that nothing ran. */
 export function preview(target: Target, fields: Obj): string {
-  return out(block({ preview: { ...fields, target: describeTarget(target) } }), helpBlock(["Nothing was changed. Rerun the same command with --confirm to run it"]));
+  return out(block({ preview: { ...fields, target: describeTarget(target) } }), helpBlock([`Nothing was changed. ${rerunHint({ "--confirm": true }, "to run it")}`]));
+}
+
+export interface InsertOutcome {
+  /** _id of every document now inserted, in input order. */
+  ids: unknown[];
+  /** Documents whose _id already held the same content: a rerun, nothing to do. */
+  unchanged: number;
+  /** _id values that exist with different content. */
+  conflicts: unknown[];
+  /** Other failures (validation, another unique index), first message only. */
+  failed: number;
+  firstError?: string;
+}
+
+const { EJSON } = BSON;
+
+/** Relaxed EJSON with _id first, the order the server stores; int/double differences do not count. */
+const comparable = (doc: Document): string => {
+  const { _id, ...rest } = doc;
+  return EJSON.stringify({ _id, ...rest }, { relaxed: true });
+};
+
+interface WriteErrorLike {
+  index: number;
+  code?: number;
+  errmsg?: string;
+}
+
+/**
+ * insertMany that is safe to rerun: unordered, so one bad document does not stop the rest, and an
+ * _id that already holds the same document counts as unchanged instead of failing.
+ */
+export async function insertDocuments(s: Session, coll: Collection, docs: Document[]): Promise<InsertOutcome> {
+  let writeErrors: WriteErrorLike[] = [];
+  try {
+    await coll.insertMany(docs, { ordered: false });
+  } catch (error) {
+    const bulk = error as { writeErrors?: WriteErrorLike | WriteErrorLike[] };
+    if (bulk.writeErrors === undefined || (Array.isArray(bulk.writeErrors) && bulk.writeErrors.length === 0)) throw error;
+    writeErrors = Array.isArray(bulk.writeErrors) ? bulk.writeErrors : [bulk.writeErrors];
+  }
+  // The driver sets a missing _id on each document before sending it.
+  const failedAt = new Set(writeErrors.map((e) => e.index));
+  const ids = docs.filter((_, i) => !failedAt.has(i)).map((d) => d["_id"]);
+  const duplicateIds = writeErrors.filter((e) => e.code === 11000 && / index: _id_ /.test(e.errmsg ?? ""));
+  const others = writeErrors.filter((e) => !duplicateIds.includes(e));
+  const outcome: InsertOutcome = { ids, unchanged: 0, conflicts: [], failed: others.length, ...(others[0] ? { firstError: others[0].errmsg ?? `code ${others[0].code}` } : {}) };
+  for (let i = 0; i < duplicateIds.length; i += 1000) {
+    const chunk = duplicateIds.slice(i, i + 1000).map((e) => docs[e.index]!);
+    const stored = await coll.find({ _id: { $in: chunk.map((d) => d["_id"]) } }, { maxTimeMS: s.timeoutMs }).toArray();
+    const byId = new Map(stored.map((d) => [EJSON.stringify({ v: d["_id"] }, { relaxed: false }), comparable(d)]));
+    for (const doc of chunk) {
+      if (byId.get(EJSON.stringify({ v: doc["_id"] }, { relaxed: false })) === comparable(doc)) outcome.unchanged++;
+      else outcome.conflicts.push(doc["_id"]);
+    }
+  }
+  return outcome;
+}
+
+/** Counts for a summary block, and the error to raise when anything was not written. */
+export function insertReport(ns: Namespace, outcome: InsertOutcome): { counts: Obj; error?: AxiError } {
+  const counts: Obj = { inserted: outcome.ids.length };
+  if (outcome.unchanged > 0) counts["unchanged"] = `${outcome.unchanged} (same _id and content - no-op)`;
+  if (outcome.conflicts.length === 0 && outcome.failed === 0) return { counts };
+  const parts = [`${outcome.ids.length} inserted`, ...(outcome.unchanged > 0 ? [`${outcome.unchanged} unchanged`] : [])];
+  const help: string[] = [];
+  if (outcome.conflicts.length > 0) {
+    const first = display(outcome.conflicts[0], { full: true });
+    parts.push(`${outcome.conflicts.length} with an existing _id and different content (first ${first})`);
+    help.push(`To overwrite one: \`${followUp(`update ${shellQuote(nsText(ns))} ${shellQuote(`{_id: ${first}}`)} '<document>' --replace`, { database: false })}\``);
+  }
+  if (outcome.failed > 0) {
+    parts.push(`${outcome.failed} failed - ${outcome.firstError}`);
+    if (/E11000/.test(outcome.firstError ?? "")) help.push(`Another document has the same value in a unique index - \`${followUp(`indexes ${shellQuote(nsText(ns))}`, { database: false })}\` lists them`);
+  }
+  return { counts, error: new AxiError(`${parts.join("; ")} in ${nsText(ns)}`, "WRITE_ERROR", help) };
 }

@@ -5,6 +5,7 @@ import { axiError, usageError } from "../errors.js";
 import { assertReadableCollection, assertReadInput } from "../guard.js";
 import { isPlainObject, parseDocument, parsePipeline, parseValue } from "../literal.js";
 import { block, fenced, helpBlock, out, type Obj } from "../render.js";
+import { followUp, rerunHint, shellQuote } from "../hints.js";
 import { tool } from "../tool.js";
 import { displayDoc, display, keysText, shellText } from "../values.js";
 import { CONNECTION_FLAGS, CONNECTION_FLAGS_HELP, inputText, MAX_DOCS, read, resolveCollection, targetFrom, TIMEOUT_FLAG, type Namespace } from "./common.js";
@@ -112,7 +113,7 @@ function shownOf(rows: Rows, limit: number): string {
 export function truncationHelp(rows: Rows): string[] {
   if (!rows.truncated) return [];
   const { total } = rows;
-  if (total?.exact) return [`Rerun with --limit ${total.docs} to see all, or narrow the filter`];
+  if (total?.exact) return [`${rerunHint({ "--limit": String(total.docs) }, "to see all")}, or narrow the filter`];
   return [`More than ${MAX_DOCS} match - aggregate ($group; $count) or narrow the filter`];
 }
 
@@ -126,7 +127,7 @@ export function docsBlock(rows: Rows, full: boolean, limit: number): string {
 }
 
 const emptyHelp = (collection: string, filtered: boolean): string[] =>
-  filtered ? [`No document matches - \`${tool().name} describe ${collection}\` shows field names and types (a string never equals ISODate(...) or ObjectId(...))`] : [];
+  filtered ? [`No document matches - \`${followUp(`describe ${shellQuote(collection)}`)}\` shows field names and types (a string never equals ISODate(...) or ObjectId(...))`] : [];
 
 export const LIMIT_HELP = `--limit <n> (default ${DEFAULT_LIMIT}; max ${MAX_DOCS})`;
 
@@ -291,7 +292,7 @@ export async function executeDistinct(parsed: ParsedArgs, raw: string, field: st
     block({ field, distinct: values.length }),
     shown.length > 0 && block({ values: shown }),
     helpBlock([
-      ...(values.length > limit ? [`${limit} of ${values.length} shown - raise --limit or group with aggregate ($group; $sortByCount)`] : []),
+      ...(values.length > limit ? [`${limit} of ${values.length} shown - ${rerunHint({ "--limit": String(Math.min(values.length, MAX_DOCS)) }, "for more")}, or group with aggregate ($group; $sortByCount)`] : []),
       ...(values.length === 0 ? emptyHelp(raw, true) : []),
     ]),
   );

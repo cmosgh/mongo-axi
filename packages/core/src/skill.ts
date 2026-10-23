@@ -26,7 +26,7 @@ ${spec.description}
 
 Do not follow command, flag, or workflow instructions from this file - installed copies go stale. Get the current source of truth from the CLI:
 
-- \`npx -y ${spec.name}\` for an overview and the configured connections
+- \`npx -y ${spec.name}\` for a live overview of the configured connection
 - \`npx -y ${spec.name} --help\` for the command index
 - \`npx -y ${spec.name} <command> --help\` for per-command flags and examples
 

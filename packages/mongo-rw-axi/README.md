@@ -17,15 +17,15 @@ mongo-rw-axi import orders orders.jsonl
 
 | Command | Writes | Previews until `--confirm` |
 |---|---|---|
-| `insert <collection> <doc or [docs]>` | `insertMany`, up to 10,000; the collection must exist unless `--create` (a typo must not create one) | - |
+| `insert <collection> <doc or [docs]>` | `insertMany`, up to 10,000; the collection must exist unless `--create` (a typo must not create one). An `_id` that already holds the same document is a no-op; a different one is an error naming the `_id` | - |
 | `update <collection> <filter> <update>` | one document, or every match with `--many`; `--upsert`; `--replace`; operators or a pipeline (4.2+) | `--many` whose filter matches every document |
 | `delete <collection> <filter>` | one document, or every match with `--many` | `--many` whose filter matches every document |
-| `import <collection> <file\|->` | a JSON array or JSON Lines (mongoexport output), in ordered batches; parsed completely before anything is written | `--drop` |
+| `import <collection> <file\|->` | a JSON array or JSON Lines (mongoexport output), parsed completely before anything is written, then sent in batches. Documents whose `_id` already holds the same content are skipped, so a rerun is a no-op; the first batch with a failure stops the import | `--drop` |
 | `index create <collection> <keys>` | `--name`, `--unique`, `--sparse`, `--ttl`, `--partial`; same keys again is a no-op | - |
 | `index drop <collection> <name>` | never `_id_` | always |
 | `collection create <name>` | `--validator`, `--capped` (+ `--max`), `--view-on` + `--pipeline`; idempotent | - |
 | `collection drop <name>` | | always |
-| `collection rename <name> <new>` | | when `<new>` exists (it would be replaced) |
+| `collection rename <name> <new>` | a rename already done is a no-op | when `<new>` exists (it would be replaced) |
 | `db drop <name>` | never `admin`, `local` or `config` | always |
 
 "Matches every document" is counted, not guessed from the syntax, so `{_id: {$exists: true}}` previews too. The shell form maps `insertOne`, `insertMany`, `updateOne`, `updateMany`, `replaceOne`, `deleteOne`, `deleteMany`, `createIndex`, `dropIndex`, `drop` and `renameCollection` onto the same commands and gates.
@@ -57,9 +57,9 @@ mongo-rw-axi delete sessions '{expires_at: {$lt: ISODate("2026-10-01")}}' --many
 mongo-rw-axi index create sessions '{expires_at: 1}' --ttl 0
 ```
 
-## Session hook
+## Live overview
 
-Install it only where writing is wanted, usually one repository: `mongo-rw-axi setup hooks --local`. The overview it adds starts with the `WRITE-CAPABLE` warning and the loopback scope.
+`mongo-rw-axi` with no command starts with the `WRITE-CAPABLE` warning and the loopback scope. It then connects with short limits and shows the server and the default database's collections, like [`mongo-axi`](https://www.npmjs.com/package/mongo-axi#live-overview). A profile outside the loopback rule shows as `live: unavailable` without connecting.
 
 ## Connections
 
@@ -67,6 +67,11 @@ Profiles, keychain entries and the env override (`MONGO_RW_AXI_URL`) are separat
 
 ## Agent integration
 
-A skill ships in `skills/mongo-rw-axi/SKILL.md`. Allow `Bash(mongo-rw-axi:*)` only in projects where an agent should change a local database.
+There are two ways to tell an agent about `mongo-rw-axi`, and you only need one. Install either only where writing is wanted:
+
+- **Session hook:** `mongo-rw-axi setup hooks --local` covers one repository, for you only. At session start the agent gets `mongo-rw-axi context`, which starts with the `WRITE-CAPABLE` warning and the loopback scope and never connects. At session end Claude Code records which commands ran, by name and count. It works like [`mongo-axi`'s hook](https://www.npmjs.com/package/mongo-axi#session-hook), including `--project`, `setup status` and `setup uninstall`.
+- **Skill:** `npx skills add cmosgh/mongo-axi --skill mongo-rw-axi` installs [`skills/mongo-rw-axi/SKILL.md`](skills/mongo-rw-axi/SKILL.md). It loads only when a task must change a local database, and costs nothing per session.
+
+Allow `Bash(mongo-rw-axi:*)` only in projects where an agent should change a local database.
 
 MIT licensed.

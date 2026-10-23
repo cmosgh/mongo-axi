@@ -4,6 +4,7 @@ import { withSession, type Session } from "../connection.js";
 import { axiError, usageError } from "../errors.js";
 import { assertReadableCollection, readWireGuard } from "../guard.js";
 import { resolveTarget, type Target } from "../target.js";
+import { followUp, shellQuote } from "../hints.js";
 import { tool } from "../tool.js";
 
 /** Accepted by every command that connects. */
@@ -34,7 +35,7 @@ export function read<T>(target: Target, parsed: ParsedArgs, fn: (s: Session) => 
 export function requireDatabase(target: Target, usage: string): string {
   if (target.database) return target.database;
   throw usageError("no database selected", [
-    `Pass -d <database> (\`${tool().name} databases\` lists them), use <database>.<collection>, or set a database on the profile`,
+    `Pass -d <database> (\`${followUp("databases", { database: false })}\` lists them), use <database>.<collection>, or set a database on the profile`,
     `usage: ${usage}`,
   ]);
 }
@@ -124,6 +125,6 @@ export async function resolveCollection(s: Session, raw: string, usage: string):
   const close = closeNames(selected ? raw : split!.collection, names ?? []);
   throw axiError(`collection '${raw}' not found in database '${where}'`, "NOT_FOUND", [
     ...(close.length > 0 ? [`did you mean: ${close.join("; ")}`] : []),
-    `Run \`${tool().name} collections -d ${where}\` or \`${tool().name} search ${selected ? raw : split!.collection}\``,
+    `Run \`${followUp(`collections -d ${shellQuote(where)}`, { database: false })}\` or \`${followUp(`search ${shellQuote(selected ? raw : split!.collection)}`, { database: false })}\``,
   ]);
 }

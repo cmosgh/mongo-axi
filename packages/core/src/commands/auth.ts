@@ -159,7 +159,7 @@ async function authLogin(args: string[]): Promise<string> {
   writeConfig({ ...config, profiles: { ...(config.profiles ?? {}), [name]: profile }, active: name });
   return out(
     block({ auth: { status: "logged in", profile: name, target: describeTarget(target), server: info.version, user: info.user, active: true } }),
-    helpBlock([`Run \`${tool().name} doctor\` to check the account's roles`, `Run \`${tool().name}\` for an overview`]),
+    helpBlock([`Run \`${tool().name} doctor\` to check the account's roles`, `Run \`${tool().name}\` for a live overview`]),
   );
 }
 

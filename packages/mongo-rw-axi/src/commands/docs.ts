@@ -4,16 +4,17 @@ import { CONNECTION_FLAGS, CONNECTION_FLAGS_HELP, inputText, targetFrom } from "
 import { AxiError, axiError, usageError } from "../../../core/src/errors.js";
 import { isPlainObject, parseDocument, parseValue } from "../../../core/src/literal.js";
 import { block, helpBlock, out, snippet, type Obj } from "../../../core/src/render.js";
+import { followUp, shellQuote } from "../../../core/src/hints.js";
 import { display, shellText } from "../../../core/src/values.js";
 import { assertNoCode } from "../write-guard.js";
-import { CONFIRM_FLAG, CREATE_FLAG, collectionExists, existingCollection, insertableDocs, newNamespace, nsText, preview, write } from "./common.js";
+import { CONFIRM_FLAG, CREATE_FLAG, collectionExists, existingCollection, insertDocuments, insertableDocs, insertReport, newNamespace, nsText, preview, write } from "./common.js";
 
 const MAX_INSERT = 10_000;
 const SHOWN_IDS = 20;
 
 export const INSERT_HELP = `usage: mongo-rw-axi insert <collection> <document or [documents]> [flags]
 WRITES. Inserts documents given as JSON or mongosh syntax (an _id is generated when missing), up to ${MAX_INSERT}; use import for files.
-The collection must exist (a typo must not create one) unless --create.
+The collection must exist (a typo must not create one) unless --create. An _id that already holds the same document is a no-op, so a rerun is safe; documents without _id are inserted again.
 flags:
   ${CONNECTION_FLAGS_HELP}, --file <path> (or - for stdin), --create
 examples:
@@ -65,12 +66,15 @@ export async function executeInsert(parsed: ParsedArgs, raw: string, spec: Inser
   const result = await write(target, parsed, async (s) => {
     const ns = spec.create ? newNamespace(s.target, raw, usage) : await existingCollection(s, raw, usage, "Pass --create to create it");
     const created = spec.create && !(await collectionExists(s, ns));
-    const r = await s.client.db(ns.database).collection(ns.collection).insertMany(spec.docs, { ordered: true });
-    return { ns, created, ids: Object.values(r.insertedIds) };
+    const outcome = await insertDocuments(s, s.client.db(ns.database).collection(ns.collection), spec.docs);
+    return { ns, created, outcome };
   });
-  const summary: Obj = { collection: `${nsText(result.ns)}${result.created ? " (created)" : ""}`, inserted: result.ids.length };
-  summary["ids"] = result.ids.slice(0, SHOWN_IDS).map((id) => display(id, { full: true }));
-  return out(block({ insert: summary }), helpBlock(result.ids.length > SHOWN_IDS ? [`First ${SHOWN_IDS} of ${result.ids.length} ids shown`] : []));
+  const { counts, error } = insertReport(result.ns, result.outcome);
+  if (error) throw error;
+  const ids = result.outcome.ids;
+  const summary: Obj = { collection: `${nsText(result.ns)}${result.created ? " (created)" : ""}`, ...counts };
+  if (ids.length > 0) summary["ids"] = ids.slice(0, SHOWN_IDS).map((id) => display(id, { full: true }));
+  return out(block({ insert: summary }), helpBlock(ids.length > SHOWN_IDS ? [`First ${SHOWN_IDS} of ${ids.length} ids shown`] : []));
 }
 
 export async function insertCommand(args: string[]): Promise<string> {
@@ -150,7 +154,7 @@ export async function executeUpdate(parsed: ParsedArgs, raw: string, spec: Updat
   }
   const summary: Obj = { collection: nsText(result.ns), matched: result.r.matchedCount, modified: result.r.modifiedCount };
   if (result.r.upsertedId != null) summary["upserted_id"] = display(result.r.upsertedId, { full: true });
-  const help = result.r.matchedCount === 0 && !spec.upsert ? [`No document matched - \`mongo-rw-axi count ${raw} '<filter>'\` checks a filter; --upsert inserts when nothing matches`] : [];
+  const help = result.r.matchedCount === 0 && !spec.upsert ? [`No document matched - \`${followUp(`count ${shellQuote(raw)} '<filter>'`)}\` checks a filter; --upsert inserts when nothing matches`] : [];
   return out(block({ update: summary }), helpBlock(help));
 }
 
@@ -206,7 +210,7 @@ export async function executeDelete(parsed: ParsedArgs, raw: string, spec: Delet
   }
   return out(
     block({ delete: { collection: nsText(result.ns), deleted: result.deleted } }),
-    helpBlock(result.deleted === 0 ? [`No document matched - \`mongo-rw-axi count ${raw} '<filter>'\` checks a filter`] : []),
+    helpBlock(result.deleted === 0 ? [`No document matched - \`${followUp(`count ${shellQuote(raw)} '<filter>'`)}\` checks a filter`] : []),
   );
 }
 

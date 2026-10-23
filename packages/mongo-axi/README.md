@@ -7,7 +7,7 @@ It cannot change data. For writing to a **local** dev database there is a separa
 ```sh
 npm install -g mongo-axi
 printf %s "$DB_PASSWORD" | mongo-axi auth login --profile dev --host 127.0.0.1 --user app --auth-source admin -d shop --password-stdin
-mongo-axi                       # overview: what this tool can do and the configured connections
+mongo-axi                       # live overview: server, then the default database's collections
 mongo-axi collections --sort size
 mongo-axi describe orders customers
 mongo-axi find orders '{status: "paid", created_at: {$gte: ISODate("2026-10-01")}}' --sort '{created_at: -1}'
@@ -112,23 +112,55 @@ mongo-axi indexes orders      # ops per index since the last restart; help lists
 - **Env override:** `MONGO_AXI_URL=mongodb://user:password@host:port/database?authSource=admin` overrides the profiles.
 - **Picking a profile:** use `-p/--profile <name>` (before or after the command), or `MONGO_AXI_PROFILE` for a single command. `-d/--database` picks the database; `database.collection` works too.
 
-## Session hook
+## Live overview
 
-Run `mongo-axi` with no command and it prints a short overview (about 220 tokens): what the tool may do, its limits, the configured connection and the next commands to try.
+Run `mongo-axi` with no command to see the server version and topology. It then shows the default database's collections, or the largest databases when no database is set, and the next commands to try. It connects with short limits: 3 s to reach the server and 10 s in total. When it cannot connect it prints `live: unavailable - <why>` with a hint and still exits 0. `-p` and `-d` work without a command: `mongo-axi -p staging -d shop`.
 
 ```text
 $ mongo-axi
 bin: ~/.npm-global/bin/mongo-axi
 description: "READ-ONLY MongoDB CLI for agents - infer schemas and run capped read queries, with TOON output. Filters are parsed as data (never evaluated) and every command is checked against a read allowlist before it is sent (not a role check)."
 mode: READ-ONLY - find; aggregate; count; distinct; explain. Write stages and server-side JavaScript are refused; results capped at 20 docs
-profiles[1]{name,target,active}:
-  dev,"app@127.0.0.1:27017/shop",true
+connection: "app@127.0.0.1:27017/shop (profile dev)"
+server: MongoDB 8.0.4 - standalone
+database: shop - 4 collections; 1 views; 100 KB
+collections[5]: customers,events,orders,paid_orders,reviews
 help[2]:
-  Run `mongo-axi collections`, `mongo-axi describe <collection>...`, `mongo-axi search <name>` or `mongo-axi sample <collection>` to explore
+  Run `mongo-axi collections` for counts and sizes; `mongo-axi describe <collection>` for fields and indexes
   Run `mongo-axi find <collection> '{status: "paid"}'`, `mongo-axi aggregate <collection> '[...]'` or `mongo-axi 'db.<collection>.find({...})'`; `mongo-axi <command> --help` for flags
 ```
 
-`mongo-axi setup hooks` installs a session-start hook in Claude Code, Codex or OpenCode that puts this overview into the agent's context, so the agent knows the tool and the database before its first command. The overview never connects to a database or reads the keychain, so the hook adds no delay.
+## Agent integration
+
+There are two ways to tell an agent about `mongo-axi`. You only need one.
+
+| | Session hook | Skill |
+|---|---|---|
+| Install | `mongo-axi setup hooks` | `npx skills add cmosgh/mongo-axi --skill mongo-axi` |
+| What the agent gets | a summary at every session start (about 250 tokens): the connection, the profiles, what the last session in this directory ran, and the commands to try | a short skill that loads when a task needs MongoDB and points at `mongo-axi --help` |
+| Cost | every session | only when the task needs it |
+| Agents | Claude Code, Codex, OpenCode | any agent that reads [Agent Skills](https://agentskills.io) |
+
+### Session hook
+
+`mongo-axi setup hooks` installs two hooks:
+
+- **Session start** (Claude Code, Codex, OpenCode) runs `mongo-axi context`, which prints the summary below. It reads only the config file. It never connects or reads the keychain, so it adds no delay.
+- **Session end** (Claude Code) runs `mongo-axi context end`. It reads the session transcript and records which `mongo-axi` commands ran: command names, counts and the `-p`/`-d` values, never filters or other arguments. The record goes in `~/.config/mongo-axi/sessions.json`, keyed by directory, and the next session in that directory sees it as `last_session`.
+
+```text
+$ mongo-axi context
+bin: ~/.npm-global/bin/mongo-axi
+description: "READ-ONLY MongoDB CLI for agents - ..."
+mode: READ-ONLY - find; aggregate; count; distinct; explain. Write stages and server-side JavaScript are refused; results capped at 20 docs
+profiles[1]{name,target,active}:
+  dev,"app@127.0.0.1:27017/shop",true
+last_session: 2026-10-22 - query 6; describe 3; collections 1 - profile dev; database shop
+help[3]:
+  Run `mongo-axi` for live server state; `mongo-axi --help` for commands
+  Run `mongo-axi collections`, `mongo-axi describe <collection>...`, `mongo-axi search <name>` or `mongo-axi sample <collection>` to explore
+  Run `mongo-axi find <collection> '{status: "paid"}'`, `mongo-axi aggregate <collection> '[...]'` or `mongo-axi 'db.<collection>.find({...})'`; `mongo-axi <command> --help` for flags
+```
 
 | Command | Applies to | Files written |
 |---|---|---|
@@ -136,11 +168,12 @@ help[2]:
 | `mongo-axi setup hooks --project` | everyone working in this repository (commit the files) | `.claude/settings.json`, `.codex/hooks.json`, `.opencode/plugins/`; Codex also needs `[features] hooks = true` in `~/.codex/config.toml`, which this adds |
 | `mongo-axi setup hooks --local` | only you, only in this repository (Claude Code) | `.claude/settings.local.json`; it says so if git would commit the file |
 
-Run `--project` and `--local` from the repository root. `setup status` and `setup uninstall` take the same flag.
+- **Scope:** run `--project` and `--local` from the repository root. `setup status` and `setup uninstall` take the same flag.
+- **Repairs:** rerun `setup hooks` after you upgrade or move the install. It rewrites the hook command and is a no-op when nothing changed. `setup status` shows `broken` or `outdated` when a rerun is needed. Hooks installed by 0.1.0 ran the overview at session start, and a rerun switches them to `context`.
+- **Other hooks:** setup changes only its own hooks. It recognises them by the binary name and `context` argument, and leaves any other hook alone.
 
-## Agent integration
+### Skill
 
-- **Session start:** `mongo-axi setup hooks`; see [Session hook](#session-hook).
-- **Skill:** a discovery skill ships in `skills/mongo-axi/SKILL.md`.
+`npx skills add cmosgh/mongo-axi --skill mongo-axi` installs [`skills/mongo-axi/SKILL.md`](skills/mongo-axi/SKILL.md). It carries no live state and no per-session cost: the agent loads it when a task needs MongoDB, and it points at `npx -y mongo-axi --help` for current guidance. The file is generated from the CLI's own description, and CI fails when it is stale.
 
 MIT licensed.

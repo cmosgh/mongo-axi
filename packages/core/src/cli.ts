@@ -1,8 +1,9 @@
 import { runAxiCli } from "axi-sdk-js";
 import { authCommand, authHelp } from "./commands/auth.js";
 import { collectionsCommand, collectionsHelp, databasesCommand, databasesHelp, describeCommand, describeHelp, indexesCommand, indexesHelp, searchCommand, searchHelp } from "./commands/browse.js";
+import { contextCommand, contextHelp } from "./commands/context.js";
 import { doctorCommand, doctorHelp } from "./commands/doctor.js";
-import { homeCommand } from "./commands/home.js";
+import { homeCommand, homeHeader, homeHelp } from "./commands/home.js";
 import {
   aggregateCommand,
   aggregateHelp,
@@ -19,10 +20,11 @@ import {
 } from "./commands/query.js";
 import { setupCommand, setupHelp } from "./commands/setup.js";
 import { shellCommand, shellHelp } from "./commands/shell-form.js";
-import { AxiError, exitCodeForError } from "./errors.js";
-import { renderErrorOutput } from "./render.js";
+import { AxiError, axiError, exitCodeForError } from "./errors.js";
+import { setInvocation } from "./hints.js";
+import { out, renderErrorOutput } from "./render.js";
 import { isShellForm } from "./shell.js";
-import { setTool, type Tool } from "./tool.js";
+import { setTool, tool, type Tool } from "./tool.js";
 
 export interface Command {
   run: (args: string[]) => Promise<string>;
@@ -68,11 +70,17 @@ export function routeShell(argv: string[]): string[] {
 
 const FRONT_ONLY = new Set(["--help", "-h", "--version", "-V", "-v"]);
 
-/** `tool --profile x collections` runs as `tool collections --profile x`: agents often put connection flags first. */
+const HOME = "home";
+
+/**
+ * `tool --profile x collections` runs as `tool collections --profile x`: agents often put connection flags first.
+ * Flags without a command (`tool -p staging`) run the overview with them.
+ */
 export function hoistLeadingFlags(argv: string[], commands: Record<string, Command>): string[] {
   if (!argv[0]?.startsWith("-") || argv[0] === "-") return argv;
   const at = argv.findIndex((token) => commands[token] !== undefined || isShellForm(token));
-  if (at <= 0 || argv.slice(0, at).some((token) => FRONT_ONLY.has(token))) return argv;
+  if (argv.slice(0, at === -1 ? argv.length : at).some((token) => FRONT_ONLY.has(token))) return argv;
+  if (at === -1) return [HOME, ...argv];
   return [argv[at]!, ...argv.slice(0, at), ...argv.slice(at + 1)];
 }
 
@@ -82,6 +90,19 @@ export interface CliSpec {
   description: string;
   topHelp: string;
   commands: Record<string, Command>;
+  /** Commands of the other tool, answered with where they live instead of "unknown command". */
+  refused?: Record<string, string>;
+}
+
+/** A command this tool deliberately lacks: READ_ONLY (exit 2) with the alternative. */
+function refusal(name: string, hint: string): Command {
+  const error = (): AxiError => axiError(`'${name}' is not a ${tool().name} command - ${tool().mode === "read-only" ? "this tool only reads" : "it never installs packages"}`, "READ_ONLY", [hint]);
+  return {
+    run: async () => {
+      throw error();
+    },
+    help: () => `${name}: not available in ${tool().name}. ${hint}\n`,
+  };
 }
 
 export interface MainOptions {
@@ -99,8 +120,16 @@ export async function runCli(spec: CliSpec, options: MainOptions = {}): Promise<
   const commands: Record<string, Command> = { ...spec.commands };
   for (const [alias, target] of Object.entries(ALIASES)) if (commands[target] && !commands[alias]) commands[alias] = commands[target]!;
   commands[SHELL] = { run: shellCommand, help: shellHelp };
+  commands[HOME] = { run: async (args) => out(homeHeader(spec.description), await homeCommand(args)), help: homeHelp };
+  const canonical = (word: string): string | undefined => (commands[word] ? (ALIASES[word] ?? word) : undefined);
+  commands["context"] = { run: (args) => contextCommand(args, { description: spec.description, canonical }), help: contextHelp };
+  // Shadows the SDK's built-in self-upgrade: an agent allowed to run this tool must not install packages.
+  if (!commands["update"]) commands["update"] = refusal("update", `To upgrade ${spec.tool.name}, a person runs \`npm install -g ${spec.tool.name}@latest\``);
+  for (const [name, hint] of Object.entries(spec.refused ?? {})) commands[name] = refusal(name, hint);
+  const argv = routeShell(hoistLeadingFlags(options.argv ?? process.argv.slice(2), commands));
+  setInvocation(argv);
   await runAxiCli({
-    argv: routeShell(hoistLeadingFlags(options.argv ?? process.argv.slice(2), commands)),
+    argv,
     ...(options.stdout ? { stdout: options.stdout } : {}),
     description: spec.description,
     version: spec.version,

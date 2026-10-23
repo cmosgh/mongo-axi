@@ -41,12 +41,22 @@ afterAll(async () => {
 });
 
 describe("home", () => {
-  it("warns that it writes and never connects", async () => {
-    process.env["MONGO_RW_AXI_URL"] = "mongodb://agent:hunter2@127.0.0.1:1/shop";
+  it("warns that it writes and shows the local server", async () => {
+    const { stdout, exitCode } = await rw();
+    expect(exitCode).toBe(0);
+    expect(stdout).toMatch(/\nwarning: WRITE-CAPABLE/);
+    expect(stdout).toMatch(/\nserver: MongoDB \d+\.\d+\.\d+ - standalone\n/);
+    expect(stdout).toContain(`database: ${DB} - `);
+    expect(stdout).not.toContain(rootPassword());
+  });
+
+  it("shows a non-loopback target as unavailable without connecting", async () => {
+    process.env["MONGO_RW_AXI_URL"] = "mongodb://agent:hunter2@10.1.2.3:27017/shop";
     try {
-      const { stdout } = await rw();
-      expect(stdout).toMatch(/\nwarning: WRITE-CAPABLE/);
-      expect(stdout).toContain('connection: "agent@127.0.0.1:1/shop (MONGO_RW_AXI_URL)"');
+      const { stdout, exitCode } = await rw();
+      expect(exitCode).toBe(0);
+      expect(stdout).toMatch(/live: "?unavailable - /);
+      expect(stdout).toContain("mongo-axi");
       expect(stdout).not.toContain("hunter2");
     } finally {
       process.env["MONGO_RW_AXI_URL"] = ROOT_URL();
@@ -71,6 +81,22 @@ describe("documents", () => {
     const operator = await rw("insert", "notes", "{$set: {a: 1}}");
     expect(operator.exitCode).toBe(2);
     expect(operator.stdout).toContain("insert takes plain documents");
+  });
+
+  it("insert is a no-op for an _id that already holds the same document, and an error when it differs", async () => {
+    const doc = '{_id: ObjectId("000000000000000000000abd"), text: "same", n: 1}';
+    expect((await rw("insert", "notes", doc)).stdout).toContain("inserted: 1");
+    const again = await rw("insert", "notes", doc, "-d", DB);
+    expect(again.exitCode).toBe(0);
+    expect(again.stdout).toBe("insert:\n  collection: axi_it_rw.notes\n  inserted: 0\n  unchanged: 1 (same _id and content - no-op)\n");
+
+    const changed = await rw("insert", "notes", '[{_id: ObjectId("000000000000000000000abd"), text: "other"}, {text: "new"}]', "-d", DB);
+    expect(changed.exitCode).toBe(1);
+    expect(changed.stdout).toContain("code: WRITE_ERROR");
+    expect(changed.stdout).toContain("1 inserted; 1 with an existing _id and different content (first ObjectId('000000000000000000000abd'))");
+    expect(changed.stdout).toContain(`To overwrite one: \`mongo-rw-axi update axi_it_rw.notes '{_id: ObjectId('\\''000000000000000000000abd'\\'')}' '<document>' --replace\``);
+    expect(await count("notes", { text: "same" })).toBe(1);
+    await (await shop()).collection("notes").deleteMany({ text: { $in: ["same", "new"] } });
   });
 
   it("update changes one or many and gates a --many that matches everything", async () => {
@@ -159,6 +185,14 @@ describe("indexes, collections and databases", () => {
     expect((await rw("collection", "rename", "tmp_a", "tmp_b", "--confirm")).stdout).toContain("renamed to tmp_b (the old one was dropped)");
     expect(await (await shop()).collection("tmp_b").findOne({}, { projection: { _id: 0 } })).toEqual({ v: 1 });
 
+    expect((await rw("collection", "rename", "tmp_b", "tmp_c")).stdout).toContain("renamed to tmp_c");
+    const repeat = await rw("collection", "rename", "tmp_b", "tmp_c");
+    expect(repeat.exitCode).toBe(0);
+    expect(repeat.stdout).toContain("already renamed (no-op)");
+    const missing = await rw("collection", "rename", "tmp_x", "tmp_y");
+    expect(missing.stdout).toContain("code: NOT_FOUND");
+    expect((await rw("collection", "rename", "tmp_c", "tmp_b")).stdout).toContain("renamed to tmp_b");
+
     const drop = await rw("collection", "drop", "tmp_b");
     expect(drop.stdout).toMatch(/risk: irreversible - deletes 1 documents and 1 indexes/);
     expect(await collections()).toContain("tmp_b");
@@ -220,10 +254,20 @@ describe("import", () => {
     expect(bad.stdout).toContain("line 2");
     expect(await count("imported")).toBe(1);
 
-    const dup = await rw("import", "imported", file("dup.jsonl", '{"_id": 1}\n{"_id": 2}\n{"_id": 1}\n{"_id": 3}\n'));
-    expect(dup.stdout).toContain("import stopped after 2 of 4 documents - E11000 duplicate key");
+    const dup = await rw("import", "imported", file("dup.jsonl", '{"_id": 1, "v": "a"}\n{"_id": 2}\n{"_id": 1, "v": "b"}\n{"_id": 3}\n'));
+    expect(dup.exitCode).toBe(1);
+    expect(dup.stdout).toContain("import stopped - 3 inserted; 1 with an existing _id and different content (first 1) in axi_it_rw.imported");
     expect(dup.stdout).toContain("code: WRITE_ERROR");
-    expect(await count("imported")).toBe(3);
+    expect(await count("imported")).toBe(4);
+  });
+
+  it("a rerun skips documents already loaded with the same content", async () => {
+    const path = file("keyed.jsonl", '{"_id": 10, "k": "a"}\n{"_id": 11, "k": "b"}\n{"_id": 12, "k": "c"}\n');
+    expect((await rw("import", "keyed", path, "--batch", "2")).stdout).toContain("inserted: 3");
+    const again = await rw("import", "keyed", path, "--batch", "2");
+    expect(again.exitCode).toBe(0);
+    expect(again.stdout).toContain("inserted: 0\n  unchanged: 3 (same _id and content - no-op)");
+    expect(await count("keyed")).toBe(3);
   });
 });
 

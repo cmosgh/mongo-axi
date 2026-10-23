@@ -1,99 +1,193 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join, resolve } from "node:path";
-import {
-  computeSessionStartHookRemoval,
-  computeSessionStartHookUpdate,
-  installSessionStartHooks,
-  sessionStartHookStatus,
-  shouldInstallHooksForNodeAxiExecPath,
-  uninstallSessionStartHooks,
-  type HookSettings,
-} from "axi-sdk-js";
+import { existsSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, isAbsolute, join, resolve } from "node:path";
+import { shouldInstallHooksForNodeAxiExecPath } from "axi-sdk-js";
 import { bool, expectPositionals, parseArgs } from "../args.js";
-import { usageError } from "../errors.js";
-import { block, helpBlock, out } from "../render.js";
+import { axiError, usageError } from "../errors.js";
+import { shellQuote } from "../hints.js";
+import {
+  agentFiles,
+  codexHooksEnabled,
+  enableCodexHooks,
+  findHooks,
+  hookCommand,
+  installHooks,
+  openCodePlugin,
+  pluginCommand,
+  pluginState,
+  readSettings,
+  removeHooks,
+  removePlugin,
+  writeSettings,
+  writeText,
+  type HookKind,
+  type Scope,
+} from "../hooks.js";
+import { block, helpBlock, out, type Obj } from "../render.js";
+import { shellSegments } from "../sessionlog.js";
 import { tool } from "../tool.js";
 
+export const SKILL_REPO = "cmosgh/mongo-axi";
+
 export const setupHelp = (): string => `usage: ${tool().name} setup <hooks|status|uninstall> [--project | --local]
-Manage the opt-in session-start hook: Claude Code, Codex and OpenCode run \`${tool().name}\` when a session starts and add its short overview to the agent's context.
+Opt-in agent hooks. At session start Claude Code, Codex and OpenCode run \`${tool().name} context\` and add its short summary to the agent's context; it never connects or reads the keychain.
+At session end Claude Code runs \`${tool().name} context end\`, which records the ${tool().name} commands the session ran (names and counts, never arguments) for the next session in the same directory.
 flags:
-  --project (this repository's shared agent config - .claude/settings.json, .codex/hooks.json, .opencode/plugins/ - instead of your user config)
-  --local (this repository only and only for you: Claude Code's .claude/settings.local.json; Codex and OpenCode have no per-user project file)
+  --project (this repository's shared config - .claude/settings.json, .codex/hooks.json, .opencode/plugins/ - instead of your user config)
+  --local (this repository, only for you: Claude Code's .claude/settings.local.json)
 notes:
-  The overview never connects to a database or reads the keychain.
-  --project still enables hooks in ~/.codex/config.toml ([features] hooks = true).
+  Rerun \`setup hooks\` after a reinstall or move: it repairs the hook command, and is a no-op when nothing changed.
+  Codex reads hooks only with [features] hooks = true in ~/.codex/config.toml: setup sets it; uninstall leaves it (other tools use it).
+  Without hooks, install the skill instead (loads on demand, no per-session cost): npx skills add ${SKILL_REPO} --skill ${tool().name}
 examples:
   ${tool().name} setup hooks
   ${tool().name} setup hooks --local
   ${tool().name} setup status --project
 `;
 
-const LOCAL_SETTINGS = join(".claude", "settings.local.json");
+const AGENT_NAMES = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" } as const;
+type Agent = keyof typeof AGENT_NAMES;
 
-/** The installed binary running this command; dev runs through tsx are refused like the SDK does. */
+/** The hooks each agent gets: Codex and OpenCode have no session-end event with a transcript. */
+const KINDS: Record<Agent, readonly HookKind[]> = { claude: ["start", "end"], codex: ["start"], opencode: ["start"] };
+
+/** The installed binary running this command; a source checkout (tsx) is refused like the SDK does. */
 function installedExecPath(name: string): string | undefined {
   const execPath = resolve(process.argv[1] ?? "");
   return shouldInstallHooksForNodeAxiExecPath(execPath, { marker: name, binaryNames: [name], distEntrypoints: [`dist/${name}.js`] }) ? execPath : undefined;
 }
 
-/** `mongo-axi` when PATH finds this same install (portable for teammates), else the absolute path. */
-function hookCommand(name: string, execPath: string): string {
-  const real = (path: string): string | undefined => {
-    try {
-      return realpathSync(path);
-    } catch {
-      return undefined;
-    }
-  };
+const real = (path: string): string | undefined => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return undefined;
+  }
+};
+
+/** The bare name when PATH finds this same install (portable for teammates), else the absolute path. */
+function portableBin(name: string, execPath: string): string {
   const target = real(execPath);
   const onPath = (process.env["PATH"] ?? "").split(delimiter).some((dir) => dir && target !== undefined && real(join(dir, name)) === target);
   return onPath ? name : execPath;
 }
 
-function readSettings(path: string): HookSettings {
-  if (!existsSync(path)) return {};
-  try {
-    return JSON.parse(readFileSync(path, "utf-8")) as HookSettings;
-  } catch {
-    throw usageError(`${path} is not valid JSON - fix or remove it, then rerun`);
-  }
-}
-
-function writeSettings(path: string, settings: HookSettings): void {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(settings, null, 2)}\n`);
-}
-
-const hasHook = (settings: HookSettings, marker: string): boolean => computeSessionStartHookRemoval(settings, marker)[1];
+const tilde = (path: string): string => (path.startsWith(homedir()) ? `~${path.slice(homedir().length)}` : path);
 
 /** True when git would commit the file: inside a repository and not ignored. */
 function committable(projectDir: string, file: string): boolean {
-  const inRepo = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: projectDir, encoding: "utf-8" }).stdout.trim() === "true";
+  const inRepo = spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: projectDir, encoding: "utf-8" }).stdout?.trim() === "true";
   return inRepo && spawnSync("git", ["check-ignore", "-q", file], { cwd: projectDir }).status === 1;
 }
 
-function localSetup(sub: "hooks" | "status" | "uninstall", name: string): string {
-  const projectDir = process.cwd();
-  const path = join(projectDir, LOCAL_SETTINGS);
-  const settings = readSettings(path);
-  if (sub === "status") return block({ hooks: { scope: "local", claude_code: hasHook(settings, name) ? "installed" : "not installed", file: LOCAL_SETTINGS } });
-  if (sub === "uninstall") {
-    const [updated, changed] = computeSessionStartHookRemoval(settings, name);
-    if (changed) writeSettings(path, updated);
-    return block({ hooks: { scope: "local", status: changed ? "removed" : "not installed (no-op)", file: LOCAL_SETTINGS } });
+const describeKinds = (kinds: readonly HookKind[]): string => (kinds.length === 2 ? "session start + end" : `session ${kinds[0]}`);
+
+/** An absolute hook binary that no longer exists: the tool was moved or uninstalled. */
+function missingBin(command: string): string | undefined {
+  const bin = shellSegments(command)[0]?.[0];
+  return bin && isAbsolute(bin) && !existsSync(bin) ? bin : undefined;
+}
+
+function agentStatus(agent: Agent, files: ReturnType<typeof agentFiles>, name: string): string {
+  if (agent === "opencode") {
+    const state = pluginState(files.opencode!, name);
+    if (state === "missing") return "not installed";
+    if (state === "foreign") return `not installed - ${tilde(files.opencode!)} was not written by setup`;
+    const bin = pluginCommand(files.opencode!);
+    if (bin && isAbsolute(bin) && !existsSync(bin)) return `broken - ${tilde(bin)} is missing; rerun setup hooks`;
+    return state === "current" ? "session start" : "outdated - rerun setup hooks";
   }
-  const execPath = installedExecPath(name);
-  if (!execPath) throw usageError(`run setup from an installed ${name} (npm install -g ${name} or npx ${name}), not from a source checkout`);
-  const [updated, changed] = computeSessionStartHookUpdate(settings, { marker: name, command: hookCommand(name, execPath) });
-  if (changed) writeSettings(path, updated);
-  return out(
-    block({ hooks: { scope: "local", status: changed ? "installed" : "already up to date (no-op)", integrations: "Claude Code", file: LOCAL_SETTINGS } }),
-    helpBlock([
-      ...(committable(projectDir, LOCAL_SETTINGS) ? [`git would commit ${LOCAL_SETTINGS} - add it to .gitignore to keep the hook personal`] : []),
-      `Restart the agent session to receive the ${name} overview`,
-    ]),
-  );
+  const path = agent === "claude" ? files.claude : files.codex!;
+  let found: Partial<Record<HookKind, string>>;
+  try {
+    found = findHooks(readSettings(path), name);
+  } catch (error) {
+    return `unreadable - ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const kinds = KINDS[agent].filter((kind) => found[kind] !== undefined);
+  if (kinds.length === 0) return "not installed";
+  const broken = kinds.map((kind) => missingBin(found[kind]!)).find(Boolean);
+  if (broken) return `broken - ${tilde(broken)} is missing; rerun setup hooks`;
+  const outdated = kinds.some((kind) => !found[kind]!.endsWith(hookCommand("", kind)));
+  const missing = KINDS[agent].filter((kind) => found[kind] === undefined);
+  if (outdated || missing.length > 0) return `${describeKinds(kinds)} - outdated; rerun setup hooks`;
+  return describeKinds(kinds);
+}
+
+function status(scope: Scope, name: string): string {
+  const files = agentFiles(name, scope, process.cwd());
+  const hooks: Obj = { scope };
+  for (const agent of Object.keys(AGENT_NAMES) as Agent[]) {
+    if (agent !== "claude" && scope === "local") continue;
+    hooks[agent === "claude" ? "claude_code" : agent] = agentStatus(agent, files, name);
+  }
+  if (files.codexConfig && hooks["codex"] !== "not installed" && !codexHooksEnabled(files.codexConfig)) {
+    hooks["codex"] = `${String(hooks["codex"])} - but [features] hooks is off in ${tilde(files.codexConfig)}; rerun setup hooks`;
+  }
+  return block({ hooks });
+}
+
+interface Outcome {
+  agent: Agent;
+  result: string;
+  failed?: string;
+}
+
+function install(scope: Scope, name: string, execPath: string): Outcome[] {
+  const files = agentFiles(name, scope, process.cwd());
+  const bin = portableBin(name, execPath);
+  const outcomes: Outcome[] = [];
+  const settingsAgent = (agent: Agent, path: string, extra?: () => boolean): void => {
+    try {
+      const [updated, changed] = installHooks(readSettings(path), name, shellQuote(bin), KINDS[agent]);
+      if (changed) writeSettings(path, updated);
+      const enabled = extra?.() ?? false;
+      outcomes.push({ agent, result: changed || enabled ? `installed (${describeKinds(KINDS[agent])})` : "already up to date (no-op)" });
+    } catch (error) {
+      outcomes.push({ agent, result: "failed", failed: error instanceof Error ? error.message : String(error) });
+    }
+  };
+  settingsAgent("claude", files.claude);
+  if (files.codex) settingsAgent("codex", files.codex, () => enableCodexHooks(files.codexConfig!));
+  if (files.opencode) {
+    const path = files.opencode;
+    try {
+      const state = pluginState(path, name, bin);
+      if (state === "foreign") throw new Error(`${path} exists and was not written by setup - remove or rename it`);
+      if (state !== "current") writeText(path, openCodePlugin(name, bin));
+      outcomes.push({ agent: "opencode", result: state === "current" ? "already up to date (no-op)" : "installed (session start)" });
+    } catch (error) {
+      outcomes.push({ agent: "opencode", result: "failed", failed: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return outcomes;
+}
+
+function uninstall(scope: Scope, name: string): Obj {
+  const files = agentFiles(name, scope, process.cwd());
+  const hooks: Obj = { scope };
+  for (const [agent, path] of [["claude", files.claude], ["codex", files.codex]] as const) {
+    if (!path) continue;
+    const key = agent === "claude" ? "claude_code" : agent;
+    try {
+      const [updated, changed] = removeHooks(readSettings(path), name);
+      if (changed) writeSettings(path, updated);
+      hooks[key] = changed ? "removed" : "not installed (no-op)";
+    } catch (error) {
+      hooks[key] = `failed - ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+  if (files.opencode) {
+    const state = pluginState(files.opencode, name);
+    if (state === "foreign") hooks["opencode"] = `kept - ${tilde(files.opencode)} was not written by setup`;
+    else if (state === "missing") hooks["opencode"] = "not installed (no-op)";
+    else {
+      removePlugin(files.opencode);
+      hooks["opencode"] = "removed";
+    }
+  }
+  return hooks;
 }
 
 export async function setupCommand(args: string[]): Promise<string> {
@@ -108,33 +202,31 @@ export async function setupCommand(args: string[]): Promise<string> {
   const parsed = parseArgs(rest, [{ name: "--project", boolean: true }, { name: "--local", boolean: true }], command);
   expectPositionals(parsed, 0, `${command} [--project | --local]`);
   if (bool(parsed, "--project") && bool(parsed, "--local")) throw usageError("pass --project or --local, not both");
-  if (bool(parsed, "--local")) return localSetup(sub, name);
-  const scope = bool(parsed, "--project") ? "project" : "user";
-  const identity = { marker: name, binaryNames: [name], distEntrypoints: [`dist/${name}.js`], projectDir: process.cwd() };
+  const scope: Scope = bool(parsed, "--local") ? "local" : bool(parsed, "--project") ? "project" : "user";
 
-  if (sub === "status") {
-    const status = sessionStartHookStatus({ ...identity, scope });
-    return block({
-      hooks: {
-        scope,
-        claude_code: status.claude.installed ? "installed" : "not installed",
-        codex: status.codex.installed ? "installed" : "not installed",
-        opencode: status.opencode.installed ? "installed" : "not installed",
-      },
-    });
+  if (sub === "status") return status(scope, name);
+  if (sub === "uninstall") return block({ hooks: uninstall(scope, name) });
+
+  const execPath = installedExecPath(name);
+  if (!execPath) throw usageError(`run setup from an installed ${name} (npm install -g ${name} or npx ${name}), not from a source checkout`);
+  const outcomes = install(scope, name, execPath);
+  const failed = outcomes.filter((o) => o.failed);
+  if (failed.length > 0) {
+    const done = outcomes.filter((o) => !o.failed).map((o) => AGENT_NAMES[o.agent]);
+    throw axiError(
+      `${failed.map((o) => `${AGENT_NAMES[o.agent]} failed - ${o.failed}`).join("; ")}${done.length > 0 ? ` (${done.join(" and ")} done)` : ""}`,
+      "SETUP_FAILED",
+      [`Fix that, then rerun \`${command}${scope === "user" ? "" : ` --${scope}`}\` - hooks already in place are left as they are`],
+    );
   }
-  if (sub === "uninstall") {
-    await uninstallSessionStartHooks({ ...identity, scope });
-    return block({ hooks: { scope, status: "removed (or were not installed)" } });
-  }
-  if (!installedExecPath(name)) throw usageError(`run setup from an installed ${name} (npm install -g ${name} or npx ${name}), not from a source checkout`);
-  const errors: string[] = [];
-  await installSessionStartHooks({ ...identity, scope, onError: (message) => errors.push(message) });
-  // The SDK skips silently when it does not recognise the binary; report what actually landed.
-  const status = sessionStartHookStatus({ ...identity, scope });
-  if (!status.claude.installed) throw usageError(`the hook was not installed${errors.length > 0 ? ` - ${errors[0]}` : ""}`);
-  return out(
-    block({ hooks: { scope, status: "installed or already up to date", integrations: "Claude Code; Codex; OpenCode" } }),
-    helpBlock([...errors, `Restart the agent session to receive the ${name} overview`]),
-  );
+  const bin = portableBin(name, execPath);
+  const hooks: Obj = { scope };
+  for (const o of outcomes) hooks[o.agent === "claude" ? "claude_code" : o.agent] = o.result;
+  hooks["runs"] = `${bin === name ? name : tilde(bin)} context`;
+  const help: string[] = [];
+  const localFile = join(".claude", "settings.local.json");
+  if (scope === "local" && committable(process.cwd(), localFile)) help.push(`git would commit ${localFile} - add it to .gitignore to keep the hook personal`);
+  if (scope === "project" && bin !== name) help.push(`The hooks run ${tilde(bin)}: teammates need ${name} on PATH (npm install -g ${name}), then rerun this from that install`);
+  help.push(`Restart the agent session to receive the ${name} context`);
+  return out(block({ hooks }), helpBlock(help));
 }

@@ -5,6 +5,7 @@ import { axiError, usageError } from "../errors.js";
 import { assertReadableCollection } from "../guard.js";
 import { block, fenced, helpBlock, humanBytes, out, type Obj } from "../render.js";
 import { inferSchema, isMixed } from "../schema.js";
+import { followUp, rerunHint } from "../hints.js";
 import { tool } from "../tool.js";
 import { keysText, shellText } from "../values.js";
 import {
@@ -108,7 +109,7 @@ export async function databasesCommand(args: string[]): Promise<string> {
   return out(
     rows.length > 0 ? block({ databases: rows }) : block({ databases: "none visible to this account" }),
     Object.keys(summary).length > 0 && block(summary),
-    helpBlock([...(hidden.cut > 0 ? [`Showing ${limit} of ${limit + hidden.cut} - raise --limit`] : []), `Run \`${tool().name} collections -d <database>\` to list its collections`]),
+    helpBlock([...(hidden.cut > 0 ? [`Showing ${limit} of ${limit + hidden.cut} - ${rerunHint({ "--limit": String(limit + hidden.cut) }, "to list all")}`] : []), `Run \`${followUp("collections -d <database>", { database: false })}\` to list its collections`]),
   );
 }
 
@@ -148,7 +149,7 @@ export async function collectionsCommand(args: string[]): Promise<string> {
     const exists = infos.length > 0 || (await s.client.db("admin").admin().listDatabases({ nameOnly: true, authorizedDatabases: true })).databases.some((d) => d.name === database);
     return { infos, stats, exists };
   });
-  if (!exists) throw axiError(`database '${database}' not found`, "NOT_FOUND", [`Run \`${tool().name} databases\``]);
+  if (!exists) throw axiError(`database '${database}' not found`, "NOT_FOUND", [`Run \`${followUp("databases", { database: false })}\``]);
 
   const rows = infos.map((c, i) => {
     const st = stats[i];
@@ -174,8 +175,8 @@ export async function collectionsCommand(args: string[]): Promise<string> {
   });
   const views = rows.filter((r) => r.kind === "view").length;
   const total = rows.reduce((sum, r) => sum + r.onDisk, 0);
-  const help = [`Run \`${tool().name} describe <collection>\` to see its fields and indexes`];
-  if (rows.length > limit) help.unshift(`Showing ${limit} of ${rows.length} - raise --limit`);
+  const help = [`Run \`${followUp("describe <collection>")}\` to see its fields and indexes`];
+  if (rows.length > limit) help.unshift(`Showing ${limit} of ${rows.length} - ${rerunHint({ "--limit": String(rows.length) }, "to list all")}`);
   if (rows.some((r) => r.kind !== "view" && !r.st)) help.push("Counts and sizes need the collStats privilege (the read role has it)");
   return out(
     block({ database, total: `${rows.length - views} collections; ${views} views; ${humanBytes(total)}` }),
@@ -250,7 +251,7 @@ export async function searchCommand(args: string[]): Promise<string> {
       ...more(collections.length, "collections"),
       ...more(result.fields.length, "fields"),
       ...(result.skipped > 0 ? [`Fields were sampled from the first ${MAX_SEARCH_COLLECTIONS} collections - pass -d to narrow`] : []),
-      `Run \`${tool().name} describe <database>.<collection>\` for its fields and indexes`,
+      `Run \`${followUp("describe <database>.<collection>", { database: false })}\` for its fields and indexes`,
     ]),
   );
 }
