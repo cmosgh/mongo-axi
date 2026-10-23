@@ -153,7 +153,8 @@ const logPath = (): string => join(configDir(), "sessions.json");
 function readLog(): SessionLog {
   try {
     const parsed = JSON.parse(readFileSync(logPath(), "utf-8")) as SessionLog;
-    return parsed && typeof parsed.directories === "object" ? parsed : { directories: {} };
+    const directories: unknown = parsed?.directories;
+    return directories !== null && typeof directories === "object" && !Array.isArray(directories) ? parsed : { directories: {} };
   } catch {
     return { directories: {} };
   }

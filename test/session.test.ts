@@ -8,6 +8,7 @@ import type { HookSettings } from "axi-sdk-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hoistLeadingFlags, type Command } from "../packages/core/src/cli.js";
 import { followUp, rerun, rerunHint, setInvocation, shellQuote } from "../packages/core/src/hints.js";
+import { configDir } from "../packages/core/src/config.js";
 import { findHooks, installHooks, ourHook, removeHooks } from "../packages/core/src/hooks.js";
 import { findInvocations, lastSession, recordSession, sessionText, shellSegments, summarizeTranscript } from "../packages/core/src/sessionlog.js";
 import { setTool } from "../packages/core/src/tool.js";
@@ -96,6 +97,17 @@ describe("session capture", () => {
     expect(sessionText(lastSession("/work/b")!)).toBe("2026-10-01 - query 2");
     expect(lastSession("/work/c")).toBeUndefined();
     expect(await summarizeTranscript(transcript, () => undefined)).toMatchObject({ commands: { other: 3 } });
+  });
+  it("starts a new log when sessions.json has the wrong shape", () => {
+    useTestEnv();
+    setTool(TOOL);
+    mkdirSync(configDir(), { recursive: true });
+    for (const content of ['{"directories": null}', '{"directories": [1]}', "null", "not json"]) {
+      writeFileSync(join(configDir(), "sessions.json"), content);
+      expect(lastSession("/work/a")).toBeUndefined();
+      recordSession("/work/a", { ended: "2026-10-01", commands: { query: 1 } });
+      expect(lastSession("/work/a")).toMatchObject({ commands: { query: 1 } });
+    }
   });
 });
 
