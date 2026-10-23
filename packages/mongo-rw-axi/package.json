@@ -1,6 +1,6 @@
 {
   "name": "mongo-rw-axi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "WRITE ACCESS - loopback hosts only. MongoDB CLI for agents that CAN MODIFY AND DROP DATA on local databases - insert, update, delete, indexes, collections, import, plus every read-only mongo-axi command. Use mongo-axi for anything that is not a local dev database.",
   "type": "module",
   "keywords": [
