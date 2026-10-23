@@ -66,6 +66,9 @@ const real = (path: string): string | undefined => {
   }
 };
 
+/** npx and pnpm dlx run from a cache that later sessions do not have on PATH, so a hook there breaks. */
+const TEMPORARY_INSTALL = /[\\/](_npx|dlx)[\\/]/;
+
 /** The bare name when PATH finds this same install (portable for teammates), else the absolute path. */
 function portableBin(name: string, execPath: string): string {
   const target = real(execPath);
@@ -208,7 +211,13 @@ export async function setupCommand(args: string[]): Promise<string> {
   if (sub === "uninstall") return block({ hooks: uninstall(scope, name) });
 
   const execPath = installedExecPath(name);
-  if (!execPath) throw usageError(`run setup from an installed ${name} (npm install -g ${name} or npx ${name}), not from a source checkout`);
+  if (!execPath) throw usageError(`run setup from an installed ${name} (npm install -g ${name}), not from a source checkout`);
+  if (TEMPORARY_INSTALL.test(real(execPath) ?? execPath)) {
+    throw usageError(`this ${name} runs from the npx cache, which later sessions do not have - a hook would break`, [
+      `Run \`npm install -g ${name}\`, then \`${name} setup hooks\``,
+      `Or use the skill instead: npx skills add ${SKILL_REPO} --skill ${name}`,
+    ]);
+  }
   const outcomes = install(scope, name, execPath);
   const failed = outcomes.filter((o) => o.failed);
   if (failed.length > 0) {

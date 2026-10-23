@@ -238,6 +238,15 @@ describe("setup", () => {
     expect(existsSync(join(home, ".claude", "settings.json"))).toBe(false);
   });
 
+  it("refuses an npx copy, whose cache later sessions do not have on PATH", async () => {
+    install(join(".npm", "_npx", "3f2a"));
+    const { stdout, exitCode } = await ro("setup", "hooks");
+    expect(exitCode).toBe(2);
+    expect(stdout).toContain("runs from the npx cache");
+    expect(stdout).toContain("npx skills add cmosgh/mongo-axi --skill mongo-axi");
+    expect(existsSync(join(home, ".claude"))).toBe(false);
+  });
+
   it("refuses a source checkout", async () => {
     process.argv[1] = join(saved.cwd, "packages", "mongo-axi", "bin", "mongo-axi.ts");
     const { stdout, exitCode } = await ro("setup", "hooks");
