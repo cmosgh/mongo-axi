@@ -1,6 +1,6 @@
 {
   "name": "mongo-axi",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Read-only MongoDB CLI for agents - schemas inferred from samples, capped find/aggregate/count/distinct/explain in token-efficient TOON. No JavaScript is evaluated; write stages are refused and every command is checked against a read allowlist before it is sent. Not a role check.",
   "type": "module",
   "keywords": [
