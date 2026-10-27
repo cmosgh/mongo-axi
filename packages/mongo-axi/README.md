@@ -15,6 +15,12 @@ mongo-axi aggregate orders '[{$group: {_id: "$status", n: {$sum: 1}}}]'
 mongo-axi 'db.orders.find({status: "paid"}).limit(5)'    # mongosh syntax, parsed as data
 ```
 
+Output is strict [TOON](https://github.com/toon-format/toon) apart from raw text (explain plans, validators, view pipelines) between `---` fences. For scripts, `--json` anywhere on the line prints the same payload as JSON, with raw text as a string field (`plan`, `validator`, `pipeline`) and typed values in their mongosh form (`"ObjectId('…')"`); errors keep their exit code:
+
+```sh
+mongo-axi find orders '{status: "paid"}' --project '{total: 1}' --json | jq -r '.result[]?.total'
+```
+
 ## Safe to auto-approve
 
 An agent with `mongosh` through Bash can run anything its account allows, including JavaScript, so each call needs a human to read it first. `mongo-axi` is read-only by construction: filters are parsed as data, write stages and server-side JavaScript are refused, every command is checked against a read allowlist just before it is sent, and every query carries a 30 s `maxTimeMS`. So `Bash(mongo-axi:*)` can be allowed without prompts.
@@ -126,8 +132,8 @@ server: MongoDB 8.0.4 - standalone
 database: shop - 4 collections; 1 views; 100 KB
 collections[5]: customers,events,orders,paid_orders,reviews
 help[2]:
-  Run `mongo-axi collections` for counts and sizes; `mongo-axi describe <collection>` for fields and indexes
-  Run `mongo-axi find <collection> '{status: "paid"}'`, `mongo-axi aggregate <collection> '[...]'` or `mongo-axi 'db.<collection>.find({...})'`; `mongo-axi <command> --help` for flags
+  - Run `mongo-axi collections` for counts and sizes; `mongo-axi describe <collection>` for fields and indexes
+  - "Run `mongo-axi find <collection> '{status: \"paid\"}'`, `mongo-axi aggregate <collection> '[...]'` or `mongo-axi 'db.<collection>.find({...})'`; `mongo-axi <command> --help` for flags"
 ```
 
 ## Agent integration
@@ -157,9 +163,9 @@ profiles[1]{name,target,active}:
   dev,"app@127.0.0.1:27017/shop",true
 last_session: 2026-10-22 - query 6; describe 3; collections 1 - profile dev; database shop
 help[3]:
-  Run `mongo-axi` for live server state; `mongo-axi --help` for commands
-  Run `mongo-axi collections`, `mongo-axi describe <collection>...`, `mongo-axi search <name>` or `mongo-axi sample <collection>` to explore
-  Run `mongo-axi find <collection> '{status: "paid"}'`, `mongo-axi aggregate <collection> '[...]'` or `mongo-axi 'db.<collection>.find({...})'`; `mongo-axi <command> --help` for flags
+  - Run `mongo-axi` for live server state; `mongo-axi --help` for commands
+  - Run `mongo-axi collections`, `mongo-axi describe <collection>...`, `mongo-axi search <name>` or `mongo-axi sample <collection>` to explore
+  - "Run `mongo-axi find <collection> '{status: \"paid\"}'`, `mongo-axi aggregate <collection> '[...]'` or `mongo-axi 'db.<collection>.find({...})'`; `mongo-axi <command> --help` for flags"
 ```
 
 | Command | Applies to | Files written |

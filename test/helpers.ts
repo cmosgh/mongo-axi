@@ -1,6 +1,8 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { decode } from "@toon-format/toon";
+import { expect } from "vitest";
 import { main as roMain } from "../packages/mongo-axi/src/cli.js";
 import { main as rwMain } from "../packages/mongo-rw-axi/src/cli.js";
 
@@ -24,7 +26,19 @@ async function capture(main: typeof roMain, argv: string[]): Promise<{ stdout: s
   await main({ argv, stdout: { write: (chunk: string) => (stdout += chunk) } });
   const exitCode = Number(process.exitCode ?? 0);
   process.exitCode = 0;
+  assertDecodes(argv, stdout);
   return { stdout, exitCode };
+}
+
+/** Every payload is strict TOON, except help pages and fenced raw text; --json is always JSON. */
+function assertDecodes(argv: string[], stdout: string): void {
+  if (argv.includes("--json")) {
+    expect(() => JSON.parse(stdout), stdout).not.toThrow();
+    return;
+  }
+  const helpPage = argv.some((a) => a === "--help" || a === "-h") || ["-v", "-V", "--version"].includes(argv[0] ?? "");
+  if (helpPage || /^---$/m.test(stdout) || stdout === "") return;
+  expect(() => decode(stdout, { strict: true }), stdout).not.toThrow();
 }
 
 export const ro = (...argv: string[]) => capture(roMain, argv);

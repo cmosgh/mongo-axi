@@ -1,3 +1,4 @@
+import { decode } from "@toon-format/toon";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withSession, type Session } from "../../packages/core/src/connection.js";
 import { readWireGuard } from "../../packages/core/src/guard.js";
@@ -126,8 +127,9 @@ describe("browsing", () => {
     expect(stdout).toContain(`error: collection 'ordrs' not found in database '${DB}'\ncode: NOT_FOUND`);
     expect(stdout).toContain("did you mean: orders");
     const multi = await ro("describe", "orders", "nope");
-    expect(multi.stdout).toContain(`name: ${DB}.orders`);
-    expect(multi.stdout).toContain("nope");
+    expect(multi.stdout).toContain(`${DB}.orders:\n  docs: 72\n`);
+    expect(multi.stdout).toContain(`${DB}.nope:\n  status: collection 'nope' not found in database '${DB}'`);
+    expect(multi.stdout).toContain(`help[1]:\n  - ${DB}.orders - Mixed types (total int|string)`);
   });
 
   it("indexes reports usage and unused indexes", async () => {
@@ -199,6 +201,31 @@ describe("reading documents", () => {
     const indexed = await ro("explain", "orders", '{status: "paid"}', "--analyze");
     expect(indexed.stdout).toContain("IXSCAN status_created (status 1; created_at -1)");
     expect(indexed.stdout).toMatch(/returned: 24\nkeys_examined: 24\ndocs_examined: 24/);
+  });
+});
+
+describe("machine-readable output", () => {
+  const json = async (...argv: string[]) => JSON.parse((await ro(...argv, "--json")).stdout) as Record<string, any>;
+
+  it("--json carries fenced raw text as string fields", async () => {
+    const plan = await json("explain", "orders", "{total: 5}");
+    expect(plan["plan"]).toBe("COLLSCAN filter {total: {$eq: 5}}");
+    expect(plan["help"][0]).toContain("an index on total");
+    const customers = await json("describe", "customers");
+    expect(customers["collection"]).toMatchObject({ name: `${DB}.customers` });
+    expect(customers["validator"]).toMatch(/^\{\$jsonSchema: \{bsonType: 'object'/);
+    const many = await json("describe", "customers", "paid_orders", "nope");
+    expect(many[`${DB}.customers`]["validator"]).toMatch(/^\{\$jsonSchema/);
+    expect(many[`${DB}.paid_orders`]).toMatchObject({ kind: "view", view_on: "orders", pipeline: "[{$match: {status: 'paid'}}]" });
+    expect(many[`${DB}.nope`]["status"]).toContain("not found");
+  });
+
+  it("--json decodes the same object TOON shows, and document field names stay inside result", async () => {
+    const pipeline = '[{$sort: {_id: 1}}, {$limit: 2}, {$project: {_id: 0, help: "$status", "code: x": "$status", docs: "$total"}}]';
+    const toon = await ro("aggregate", "orders", pipeline);
+    expect(await json("aggregate", "orders", pipeline)).toEqual(decode(toon.stdout, { strict: true }));
+    expect(Object.keys(await json("aggregate", "orders", pipeline))).toEqual(["result"]);
+    expect((await json("find", "orders", "{}", "--limit", "1", "--project", "{_id: 1}"))["result"]).toEqual([{ _id: "ObjectId('0000000000000000000003e8')" }]);
   });
 });
 

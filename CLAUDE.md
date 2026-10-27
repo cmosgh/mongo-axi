@@ -9,7 +9,8 @@ Monorepo for two AXI MongoDB CLIs: `mongo-axi` (read-only) and `mongo-rw-axi` (w
   3. `readWireGuard()` checks every command in the driver's `commandStarted` listener (`connection.ts`) and stops anything outside the read allowlist or without `maxTimeMS`.
   Read commands in `mongo-rw-axi` use the same path. A guard change needs cases in `test/guard.test.ts` and, for server behaviour, `test/integration/`.
 - **Output is the product.** Every stdout byte costs tokens. Typed values print in mongosh form (`values.ts`) so they paste back into a filter. Keep numbers as numbers. Avoid commas, colons and double quotes in literal TOON strings.
-- **Handlers return strings** built with `block()`, `helpBlock()`, `out()` and `fenced()` from `packages/core/src/render.ts`. Raw text (plans, validators, pipelines) goes between `---` fences.
+- **Handlers return strings** built with `block()`, `helpBlock()`, `out()` and `fenced()` from `packages/core/src/render.ts`. Raw text (plans, validators, pipelines) goes through `fenced(key, text)`: `---` fences in TOON, the string field `key` under `--json`. Never print raw text any other way.
+- **Output decodes.** Apart from fences, stdout is strict TOON with unique top-level keys (document field names stay inside `result`; several collections get one key per namespace); `--json` prints the decoded payload. `ro()`/`rw()` in `test/helpers.ts` assert both for every command a test runs.
 - **Every flag is declared.** `parseArgs()` rejects unknown flags with the valid set inline. Validate input before connecting; usage errors and guard refusals exit 2.
 - **A missing collection is an error** (`resolveCollection`), never an empty result: MongoDB returns nothing for a typo.
 - **Mutations are idempotent and irreversible ones need `--confirm`,** previewing otherwise.

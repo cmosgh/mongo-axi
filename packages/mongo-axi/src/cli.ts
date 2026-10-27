@@ -20,6 +20,8 @@ commands[15]:
   'db.<collection>.find({...})' = mongosh shell form, parsed as data
 connection flags (every command that reads):
   -p/--profile <name>, -d/--database <name>, --timeout <seconds> (default 30)
+output flags (every command):
+  --json (JSON instead of TOON, for scripts)
 examples:
   mongo-axi collections --sort size
   mongo-axi describe orders customers

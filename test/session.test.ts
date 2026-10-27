@@ -4,11 +4,13 @@ import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { decode } from "@toon-format/toon";
 import type { HookSettings } from "axi-sdk-js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hoistLeadingFlags, type Command } from "../packages/core/src/cli.js";
 import { followUp, rerun, rerunHint, setInvocation, shellQuote } from "../packages/core/src/hints.js";
 import { configDir } from "../packages/core/src/config.js";
+import { helpBlock } from "../packages/core/src/render.js";
 import { findHooks, installHooks, ourHook, removeHooks } from "../packages/core/src/hooks.js";
 import { findInvocations, lastSession, recordSession, sessionText, shellSegments, summarizeTranscript } from "../packages/core/src/sessionlog.js";
 import { setTool } from "../packages/core/src/tool.js";
@@ -69,6 +71,7 @@ describe("session capture", () => {
     expect(findInvocations("/opt/bin/mongo-axi frobnicate secret", "mongo-axi", lookup)).toEqual([{ command: "other" }]);
     expect(findInvocations("mongo-axi --help", "mongo-axi", lookup)).toEqual([{ command: "help" }]);
     expect(findInvocations("mongo-axi -d shop", "mongo-axi", lookup)).toEqual([{ command: "home", database: "shop" }]);
+    expect(findInvocations("mongo-axi --json find orders -d shop; mongo-axi --json", "mongo-axi", lookup)).toEqual([{ command: "query", database: "shop" }, { command: "home" }]);
     expect(findInvocations("echo mongo-axi; grep mongo-axi x", "mongo-axi", lookup)).toEqual([]);
   });
 
@@ -426,5 +429,57 @@ describe("refused commands", () => {
     expect((await ro("--help")).stdout).not.toContain("built-in");
     expect((await rw("--help")).stdout).not.toContain("built-in");
     expect((await rw("update", "--help")).stdout).toContain("usage: mongo-rw-axi update");
+  });
+});
+
+describe("machine-readable output", () => {
+  beforeEach(() => useTestEnv());
+  const UNREACHABLE = "mongodb://agent:hunter2@127.0.0.1:1/shop?authSource=admin";
+  const json = async (cli: typeof ro, ...argv: string[]) => {
+    const { stdout, exitCode } = await cli(...argv, "--json");
+    return { value: JSON.parse(stdout) as Record<string, any>, exitCode };
+  };
+
+  // ro()/rw() already assert strict TOON for each of these; they connect nowhere.
+  it("commands without their own test still decode as TOON", async () => {
+    process.env["MONGO_AXI_URL"] = UNREACHABLE;
+    process.env["MONGO_RW_AXI_URL"] = "mongodb://127.0.0.1:1/shop";
+    for (const cli of [ro, rw]) {
+      for (const argv of [["context"], ["auth", "status"], ["frobnicate"], ["find"], ["-p", "nope"]]) await cli(...argv);
+    }
+    expect((await rw()).stdout).toMatch(/^bin: /);
+  }, 15_000);
+
+  it("--json decodes the same object TOON shows", async () => {
+    process.env["MONGO_AXI_URL"] = UNREACHABLE;
+    const toon = await ro("context");
+    expect((await json(ro, "context")).value).toEqual(decode(toon.stdout, { strict: true }));
+  });
+
+  it("--json keeps errors structured and the exit code", async () => {
+    const { value, exitCode } = await json(ro, "find");
+    expect(exitCode).toBe(2);
+    expect(value).toMatchObject({ code: "VALIDATION_ERROR", help: expect.any(Array) });
+    expect((await json(rw, "db", "drop")).exitCode).toBe(2);
+  });
+
+  it("--json works before the command and on the home view", async () => {
+    delete process.env["MONGO_AXI_URL"];
+    expect((await json(ro)).value).toMatchObject({ mode: expect.stringContaining("READ-ONLY"), status: "not configured", help: expect.any(Array) });
+    const { stdout } = await ro("--json");
+    expect(JSON.parse(stdout)).toMatchObject({ status: "not configured" });
+    expect(JSON.parse((await rw("--json", "auth", "status")).stdout)).toMatchObject({ override: expect.stringContaining("MONGO_RW_AXI_URL") });
+  });
+
+  it("help lines that look like key: value stay strings", () => {
+    const lines = ["Run `x` to see: a,b", "42", 'say "hi"', "did you mean: orders", "- dash", "back\\slash\ttab"];
+    expect(decode(helpBlock(lines), { strict: true })).toEqual({ help: lines });
+  });
+
+  it("--json wraps help pages that are not TOON", async () => {
+    expect(JSON.parse((await ro("--help", "--json")).stdout)["text"]).toContain("usage: mongo-axi");
+    expect(JSON.parse((await rw("--json", "update", "--help")).stdout)["text"]).toContain("usage: mongo-rw-axi update");
+    expect(JSON.parse((await ro("describe", "-h", "--json")).stdout)["text"]).toContain("usage: mongo-axi describe");
+    expect(JSON.parse((await ro("--version", "--json")).stdout)).toMatch(/^\d+\.\d+\.\d+/);
   });
 });

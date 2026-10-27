@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { decode } from "@toon-format/toon";
 import { MongoClient, ObjectId } from "mongodb";
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest";
 import { withSession, type Session } from "../../packages/core/src/connection.js";
@@ -94,7 +95,7 @@ describe("documents", () => {
     expect(changed.exitCode).toBe(1);
     expect(changed.stdout).toContain("code: WRITE_ERROR");
     expect(changed.stdout).toContain("1 inserted; 1 with an existing _id and different content (first ObjectId('000000000000000000000abd'))");
-    expect(changed.stdout).toContain(`To overwrite one: \`mongo-rw-axi update axi_it_rw.notes '{_id: ObjectId('\\''000000000000000000000abd'\\'')}' '<document>' --replace\``);
+    expect((decode(changed.stdout) as { help: string[] }).help).toContain(`To overwrite one: \`mongo-rw-axi update axi_it_rw.notes '{_id: ObjectId('\\''000000000000000000000abd'\\'')}' '<document>' --replace\``);
     expect(await count("notes", { text: "same" })).toBe(1);
     await (await shop()).collection("notes").deleteMany({ text: { $in: ["same", "new"] } });
   });

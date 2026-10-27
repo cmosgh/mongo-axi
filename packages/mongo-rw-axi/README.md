@@ -13,6 +13,12 @@ mongo-rw-axi 'db.orders.updateMany({status: "pending"}, {$set: {status: "expired
 mongo-rw-axi import orders orders.jsonl
 ```
 
+Output is strict [TOON](https://github.com/toon-format/toon) apart from raw text between `---` fences. For scripts, `--json` anywhere on the line prints the same payload as JSON; errors keep their exit code:
+
+```sh
+mongo-rw-axi insert orders '{status: "paid"}' --json | jq -r '.insert.inserted'
+```
+
 ## What it does
 
 | Command | Writes | Previews until `--confirm` |

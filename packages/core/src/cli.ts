@@ -22,7 +22,7 @@ import { setupCommand, setupHelp } from "./commands/setup.js";
 import { shellCommand, shellHelp } from "./commands/shell-form.js";
 import { AxiError, axiError, exitCodeForError } from "./errors.js";
 import { setInvocation } from "./hints.js";
-import { out, renderErrorOutput } from "./render.js";
+import { out, renderErrorOutput, setJsonMode, toJson } from "./render.js";
 import { isShellForm } from "./shell.js";
 import { setTool, tool, type Tool } from "./tool.js";
 
@@ -129,11 +129,17 @@ export async function runCli(spec: CliSpec, options: MainOptions = {}): Promise<
   // Shadows the SDK's built-in self-upgrade: an agent allowed to run this tool must not install packages.
   if (!commands["update"]) commands["update"] = refusal("update", `To upgrade ${spec.tool.name}, a person runs \`npm install -g ${spec.tool.name}@latest\``);
   for (const [name, hint] of Object.entries(spec.refused ?? {})) commands[name] = refusal(name, hint);
-  const argv = routeShell(hoistLeadingFlags(options.argv ?? process.argv.slice(2), commands));
+  // Stripped here: the SDK rejects flags before the command, and --json may stand anywhere.
+  const given = options.argv ?? process.argv.slice(2);
+  const json = given.includes("--json");
+  setJsonMode(json);
+  const argv = routeShell(hoistLeadingFlags(json ? given.filter((a) => a !== "--json") : given, commands));
   setInvocation(argv);
+  const stdout = options.stdout ?? process.stdout;
+  let buffered = "";
   await runAxiCli({
     argv,
-    ...(options.stdout ? { stdout: options.stdout } : {}),
+    ...(json ? { stdout: { write: (chunk: string) => (buffered += chunk) } } : options.stdout ? { stdout: options.stdout } : {}),
     description: spec.description,
     version: spec.version,
     topLevelHelp: spec.topHelp,
@@ -149,4 +155,8 @@ export async function runCli(spec: CliSpec, options: MainOptions = {}): Promise<
       ])}\n`,
     formatError,
   });
+  if (!json) return;
+  // The SDK only guards the stdout it writes to: `--json | head` must not crash on EPIPE either.
+  if (stdout === process.stdout) process.stdout.on("error", (error: NodeJS.ErrnoException) => { if (error.code !== "EPIPE") throw error; });
+  stdout.write(toJson(buffered));
 }

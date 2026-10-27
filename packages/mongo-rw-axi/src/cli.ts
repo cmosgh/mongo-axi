@@ -33,6 +33,8 @@ commands[22]:
   'db.<collection>.updateOne({...}, {...})' = mongosh shell form (reads and writes), parsed as data
 connection flags (every command that connects):
   -p/--profile <name>, -d/--database <name>
+output flags (every command):
+  --json (JSON instead of TOON, for scripts)
 examples:
   mongo-rw-axi
   mongo-rw-axi insert orders '{status: "paid", total: NumberDecimal("12.50")}'

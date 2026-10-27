@@ -3,7 +3,7 @@ import { bool, enumFlag, expectPositionals, flag, intFlag, parseArgs, parseField
 import type { Session } from "../connection.js";
 import { axiError, usageError } from "../errors.js";
 import { assertReadableCollection } from "../guard.js";
-import { block, fenced, helpBlock, humanBytes, out, type Obj } from "../render.js";
+import { block, fenced, helpBlock, humanBytes, isJsonMode, out, type Obj } from "../render.js";
 import { inferSchema, isMixed } from "../schema.js";
 import { followUp, rerunHint } from "../hints.js";
 import { tool } from "../tool.js";
@@ -301,9 +301,19 @@ async function describeIn(s: Session, raw: string, sampleSize: number, usage: st
 
 type DescribeResult = Awaited<ReturnType<typeof describeIn>>;
 
-function renderDescribe(r: DescribeResult): string {
+interface DescribeParts {
+  name: string;
+  header: Obj;
+  data: Obj;
+  /** Raw mongosh text (validator, view pipeline): fenced, never inside a TOON string. */
+  raw: Record<string, string>;
+  help: string[];
+}
+
+function describeParts(r: DescribeResult): DescribeParts {
   const options = (r.info && "options" in r.info ? (r.info.options ?? {}) : {}) as Document;
-  const header: Obj = { name: `${r.ns.database}.${r.ns.collection}` };
+  const name = `${r.ns.database}.${r.ns.collection}`;
+  const header: Obj = {};
   if (r.view) Object.assign(header, { kind: "view", view_on: options["viewOn"] });
   else if (r.info?.type === "timeseries") header["kind"] = "timeseries";
   else if (options["capped"]) header["kind"] = "capped";
@@ -321,14 +331,50 @@ function renderDescribe(r: DescribeResult): string {
   if (r.schema.sampled === 0) help.push("The collection is empty - no fields to infer");
   if (r.schema.omitted > 0) help.push(`More than ${r.schema.fields.length} field paths - the rest were not listed`);
   if (mixed.length > 0) help.push(`Mixed types (${mixed.slice(0, 3).map((f) => `${f.path} ${f.types.join("|")}`).join("; ")}) - a filter on one type misses the others`);
+  const data: Obj = {};
+  if (r.schema.fields.length > 0) data["fields"] = r.schema.fields.map((f) => ({ path: f.path, types: f.types.join("|"), pct: pct(f.docs) }));
+  if (r.indexes.length > 0) data["indexes"] = r.indexes.map((i) => ({ name: i["name"], keys: indexKeys(i), options: indexOptions(i) }));
+  const raw: Record<string, string> = {};
+  if (options["validator"] !== undefined) raw["validator"] = shellText(options["validator"]);
+  if (r.view) raw["pipeline"] = shellText(options["pipeline"] ?? []);
+  return { name, header, data, raw, help };
+}
+
+function renderDescribe(r: DescribeResult): string {
+  const p = describeParts(r);
   return out(
-    block({ collection: header }),
-    r.schema.fields.length > 0 && block({ fields: r.schema.fields.map((f) => ({ path: f.path, types: f.types.join("|"), pct: pct(f.docs) })) }),
-    r.indexes.length > 0 && block({ indexes: r.indexes.map((i) => ({ name: i["name"], keys: indexKeys(i), options: indexOptions(i) })) }),
-    options["validator"] !== undefined && fenced("validator", shellText(options["validator"])),
-    r.view && fenced("pipeline", shellText(options["pipeline"] ?? [])),
-    helpBlock(help),
+    block({ collection: { name: p.name, ...p.header }, ...p.data }),
+    ...Object.entries(p.raw).map(([key, text]) => fenced(key, text)),
+    helpBlock(p.help),
   );
+}
+
+/**
+ * Several collections: one top-level key per namespace, so repeated keys (fields, validator) stay unique.
+ * Under --json the raw text moves into its collection's object.
+ */
+function renderDescribeMany(results: Array<DescribeResult | { raw: string; error: string; hint?: string }>, database: string | undefined): string {
+  const seen = new Set<string>();
+  const blocks: string[] = [];
+  const help: string[] = [];
+  for (const r of results) {
+    if ("error" in r) {
+      // Namespaced like the others, so a missing `help` or `validator` cannot repeat a key.
+      const name = database ? `${database}.${r.raw}` : r.raw;
+      if (seen.has(name)) continue;
+      seen.add(name);
+      blocks.push(block({ [name]: { status: r.error, ...(r.hint ? { hint: r.hint } : {}) } }));
+      continue;
+    }
+    const p = describeParts(r);
+    if (seen.has(p.name)) continue;
+    seen.add(p.name);
+    const value = { ...p.header, ...p.data };
+    if (isJsonMode()) blocks.push(block({ [p.name]: { ...value, ...p.raw } }));
+    else blocks.push(out(block({ [p.name]: value }), ...Object.entries(p.raw).map(([key, text]) => fenced(key, text))));
+    help.push(...p.help.map((line) => `${p.name} - ${line}`));
+  }
+  return out(...blocks, helpBlock(help));
 }
 
 export async function describeCommand(args: string[]): Promise<string> {
@@ -355,7 +401,7 @@ export async function describeCommand(args: string[]): Promise<string> {
     }
     return all;
   });
-  return out(...results.map((r) => ("error" in r ? block({ collection: { name: r.raw, status: r.error, ...(r.hint ? { hint: r.hint } : {}) } }) : renderDescribe(r))));
+  return renderDescribeMany(results, target.database);
 }
 
 // --- indexes ---
