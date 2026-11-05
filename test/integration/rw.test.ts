@@ -14,6 +14,7 @@ import { writeWireGuard } from "../../packages/mongo-rw-axi/src/write-guard.js";
 import { rw } from "../helpers.js";
 import { closeAdmin, db, rootPassword, scratchDatabase, serverPort, serverVersion, urlFor } from "./db.js";
 import { ORDER_COUNT, seedShop } from "./fixtures.js";
+import { DOCKER_RSEQ_ENV } from "./server.js";
 
 const DB = "axi_it_rw";
 const DROP_DB = "axi_it_rw_drop";
@@ -377,7 +378,7 @@ describe("tunnel check", () => {
   };
 
   beforeAll(async () => {
-    container = docker("run", "-d", "--rm", "--label", "mongo-axi-it", "--hostname", HOSTNAME, "-p", "127.0.0.1::27017", "--tmpfs", "/data/db", inject("mongoImage"), "--replSet", "rs0", "--bind_ip_all");
+    container = docker("run", "-d", "--rm", "--label", "mongo-axi-it", ...DOCKER_RSEQ_ENV, "--hostname", HOSTNAME, "-p", "127.0.0.1::27017", "--tmpfs", "/data/db", inject("mongoImage"), "--replSet", "rs0", "--bind_ip_all");
     port = Number(docker("port", container, "27017/tcp").split("\n")[0]!.split(":").pop());
     const ip = docker("inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container);
     client = new MongoClient(`mongodb://127.0.0.1:${port}/`, { directConnection: true, serverSelectionTimeoutMS: 2000 });

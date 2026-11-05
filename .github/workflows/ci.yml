@@ -28,8 +28,7 @@ jobs:
   # Starts its own throwaway MongoDB container (Docker is preinstalled on the runner).
   # mongo:3.7 is the 4.0 development series, the oldest wire version the driver speaks; the safety matrix needs mongosh and skips there.
   integration:
-    # mongo:8.0 (8.0.34) exits on Ubuntu 26.04's 7.0 kernel (SERVER-121912); the fix for Ubuntu kernels is 8.0.37 (SERVER-131779).
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
