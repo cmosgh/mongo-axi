@@ -19,6 +19,17 @@ const READY_TIMEOUT_MS = 120_000;
 
 const docker = (...args: string[]): string => execFileSync("docker", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 
+function containerDiagnostics(container: string): string {
+  const run = (...args: string[]): string => {
+    try {
+      return execFileSync("docker", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    } catch (error) {
+      return String(error);
+    }
+  };
+  return `state: ${run("inspect", "--format", "{{.State.Status}} exit={{.State.ExitCode}}", container)}\nlogs:\n${run("logs", "--tail", "40", container)}`;
+}
+
 async function waitUntilReady(url: string, container: string): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   for (;;) {
@@ -28,7 +39,12 @@ async function waitUntilReady(url: string, container: string): Promise<void> {
       await client.db("admin").command({ ping: 1 });
       return;
     } catch (error) {
-      if (Date.now() > deadline) throw new Error(`MongoDB container ${container} not ready after ${READY_TIMEOUT_MS / 1000}s: ${String(error)}`);
+      if (Date.now() > deadline) {
+        const message = `MongoDB container ${container} not ready after ${READY_TIMEOUT_MS / 1000}s: ${String(error)}\n${containerDiagnostics(container)}`;
+        // vitest can crash while formatting a globalSetup error, so print it first.
+        console.error(message);
+        throw new Error(message);
+      }
       await new Promise((resolve) => setTimeout(resolve, 500));
     } finally {
       await client.close().catch(() => {});
