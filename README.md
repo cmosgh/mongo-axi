@@ -43,3 +43,13 @@ pnpm run safety:readme      # render the safety matrix that test/integration/saf
 Both packages are released together: `npm version patch && git push --follow-tags` bumps the root and both packages, and the Release workflow stages both on npm for 2FA approval.
 
 MIT licensed.
+
+<!-- axi-tools:start -->
+## Other AXI tools
+
+- [`atl-axi`](https://github.com/cmosgh/atl-axi): Atlassian Jira Cloud CLI for agents
+- [`bb-axi`](https://github.com/cmosgh/bb-axi): Bitbucket Cloud CLI for agents
+- [`hetzner-axi`](https://github.com/cmosgh/hetzner-axi): Hetzner Cloud CLI for agents
+- [`mysql-axi`](https://github.com/cmosgh/mysql-axi): Read-only MySQL CLI for agents, plus `mysql-rw-axi` (write-capable MySQL CLI for agents, loopback hosts only)
+- [`ts-axi`](https://github.com/cmosgh/ts-axi): TypeScript symbol CLI for agents
+<!-- axi-tools:end -->
