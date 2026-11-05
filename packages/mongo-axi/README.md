@@ -184,3 +184,14 @@ help[3]:
 `npx skills add cmosgh/mongo-axi --skill mongo-axi` installs [`skills/mongo-axi/SKILL.md`](skills/mongo-axi/SKILL.md). It carries no live state and no per-session cost: the agent loads it when a task needs MongoDB, and it points at `npx -y mongo-axi --help` for current guidance. The file is generated from the CLI's own description, and CI fails when it is stale.
 
 MIT licensed.
+
+<!-- axi-tools:start -->
+## Other AXI tools
+
+- [`mongo-rw-axi`](https://github.com/cmosgh/mongo-axi/tree/main/packages/mongo-rw-axi): Write-capable MongoDB CLI for agents, loopback hosts only
+- [`atl-axi`](https://github.com/cmosgh/atl-axi): Atlassian Jira Cloud CLI for agents
+- [`bb-axi`](https://github.com/cmosgh/bb-axi): Bitbucket Cloud CLI for agents
+- [`hetzner-axi`](https://github.com/cmosgh/hetzner-axi): Hetzner Cloud CLI for agents
+- [`mysql-axi`](https://github.com/cmosgh/mysql-axi): Read-only MySQL CLI for agents, plus `mysql-rw-axi` (write-capable MySQL CLI for agents, loopback hosts only)
+- [`ts-axi`](https://github.com/cmosgh/ts-axi): TypeScript symbol CLI for agents
+<!-- axi-tools:end -->

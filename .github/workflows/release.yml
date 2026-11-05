@@ -50,6 +50,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - if: steps.registry.outputs.published == 'false'
         run: pnpm run check
+      # npm shows this README, so the "Other AXI tools" links must point at npm, not GitHub.
+      - if: steps.registry.outputs.published == 'false'
+        run: node scripts/readme-npm-links.mjs
       - if: steps.registry.outputs.published == 'false'
         run: npm install -g npm@latest
       - if: steps.registry.outputs.published == 'false'
