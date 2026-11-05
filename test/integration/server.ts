@@ -60,7 +60,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
   }
   const password = randomBytes(12).toString("hex");
   const container = docker(
-    "run", "-d", "--rm", "--label", "mongo-axi-it",
+    "run", "-d", "--label", "mongo-axi-it",
     "-e", "MONGO_INITDB_ROOT_USERNAME=root",
     "-e", `MONGO_INITDB_ROOT_PASSWORD=${password}`,
     "-p", "127.0.0.1::27017",
@@ -73,7 +73,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
     try {
       docker("rm", "-f", container);
     } catch {
-      // Already gone (--rm).
+      // Already gone.
     }
   };
   try {
