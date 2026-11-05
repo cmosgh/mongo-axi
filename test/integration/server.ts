@@ -17,7 +17,25 @@ declare module "vitest" {
 const IMAGE = process.env["MONGO_AXI_IT_IMAGE"] ?? "mongo:8.0";
 const READY_TIMEOUT_MS = 120_000;
 
+/**
+ * The mongo 8 images set glibc.pthread.rseq=0, so tcmalloc's per-CPU caches run and mongod refuses to
+ * start on Linux 6.19 - 7.0.13 kernels, Ubuntu's 7.0.0-x included (SERVER-121912, SERVER-131779).
+ * Letting glibc own rseq turns those caches off, which mongod accepts on any kernel.
+ */
+export const DOCKER_RSEQ_ENV = ["-e", "GLIBC_TUNABLES=glibc.pthread.rseq=1"] as const;
+
 const docker = (...args: string[]): string => execFileSync("docker", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+
+function containerDiagnostics(container: string): string {
+  const run = (...args: string[]): string => {
+    try {
+      return execFileSync("docker", args, { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+    } catch (error) {
+      return String(error);
+    }
+  };
+  return `state: ${run("inspect", "--format", "{{.State.Status}} exit={{.State.ExitCode}}", container)}\nlogs:\n${run("logs", "--tail", "40", container)}`;
+}
 
 async function waitUntilReady(url: string, container: string): Promise<void> {
   const deadline = Date.now() + READY_TIMEOUT_MS;
@@ -28,7 +46,12 @@ async function waitUntilReady(url: string, container: string): Promise<void> {
       await client.db("admin").command({ ping: 1 });
       return;
     } catch (error) {
-      if (Date.now() > deadline) throw new Error(`MongoDB container ${container} not ready after ${READY_TIMEOUT_MS / 1000}s: ${String(error)}`);
+      if (Date.now() > deadline) {
+        const message = `MongoDB container ${container} not ready after ${READY_TIMEOUT_MS / 1000}s: ${String(error)}\n${containerDiagnostics(container)}`;
+        // vitest can crash while formatting a globalSetup error, so print it first.
+        console.error(message);
+        throw new Error(message);
+      }
       await new Promise((resolve) => setTimeout(resolve, 500));
     } finally {
       await client.close().catch(() => {});
@@ -44,7 +67,8 @@ export default async function setup(project: TestProject): Promise<() => void> {
   }
   const password = randomBytes(12).toString("hex");
   const container = docker(
-    "run", "-d", "--rm", "--label", "mongo-axi-it",
+    "run", "-d", "--label", "mongo-axi-it",
+    ...DOCKER_RSEQ_ENV,
     "-e", "MONGO_INITDB_ROOT_USERNAME=root",
     "-e", `MONGO_INITDB_ROOT_PASSWORD=${password}`,
     "-p", "127.0.0.1::27017",
@@ -57,7 +81,7 @@ export default async function setup(project: TestProject): Promise<() => void> {
     try {
       docker("rm", "-f", container);
     } catch {
-      // Already gone (--rm).
+      // Already gone.
     }
   };
   try {
